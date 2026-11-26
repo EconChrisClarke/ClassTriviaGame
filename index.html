@@ -72,10 +72,12 @@
     <div class="timer"><div class="timer-fill" id="heatTimer"></div></div>
     <p class="qnum pop" id="heatNum"></p>
     <p class="qprompt pop" id="heatPrompt"></p>
-    <p class="small muted center pop">Tap the picture to drop your pin, then submit.</p>
+    <p class="small muted center pop" id="heatHint">Tap the picture to drop your pin, then submit.</p>
     <div class="heatwrap pop" id="heatWrap">
       <img id="heatImg" alt="Question image">
       <div id="heatPin" class="pin hidden"></div>
+      <div id="heatPin2" class="pin two hidden"></div>
+      <button id="heatReset" class="btn ghost sm resetpins hidden" type="button">Reset pins</button>
       <div id="heatLoading" class="heatloading"><div class="dots"><i></i><i></i><i></i></div></div>
     </div>
     <button id="heatSubmit" class="btn big block teal pop" disabled>Lock it in 📍</button>

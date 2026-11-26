@@ -44,6 +44,8 @@ main { max-width: 520px; margin: 0 auto; padding: 8px 16px 32px; }
 .pin::before { content: ""; position: absolute; inset: 0; background: var(--red);
   border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,.35); }
 .pin::after { content: ""; position: absolute; width: 10px; height: 10px; left: 12px; top: 9px; background: #fff; border-radius: 50%; }
+.pin.two::before { background: var(--navy); }
+.resetpins { position: absolute; right: 8px; bottom: 8px; z-index: 2; }
 @keyframes pinDrop { 0% { transform: translateY(-40px) scale(.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
 
 /* Results */
