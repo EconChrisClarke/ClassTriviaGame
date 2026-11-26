@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#C71E1D">
+<title>Class Poll Bonanza</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23C71E1D'/%3E%3Cpath d='M21.5 10.5V84.5H90.5' fill='none' stroke='%23fff' stroke-width='9.5'/%3E%3Cpath d='M30 82L80 14M24 26L88 70' fill='none' stroke='%23fff' stroke-width='9.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,600..900,0..100,0..1&family=Inter:wght@400;500;600;700;800&family=Jost:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+<header class="topbar">
+  <div id="brand"></div>
+  <div id="me" class="me hidden"><span id="meName"></span><span id="meScore" class="pill">0.0 pts</span></div>
+</header>
+
+<main>
+  <!-- 1. Enter the game code (skipped when the QR code carries it) -->
+  <section data-view="code" class="hidden">
+    <div class="card pop stack">
+      <h1 class="pop">Join the game!</h1>
+      <p class="muted pop">Type the code on the big screen.</p>
+      <input id="codeInput" class="input code pop" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE" aria-label="Game code">
+      <button id="codeBtn" class="btn big block pop">Let's go →</button>
+    </div>
+  </section>
+
+  <!-- 2. Name + student ID -->
+  <section data-view="profile" class="hidden">
+    <form id="profileForm" class="card stack" novalidate>
+      <h1 class="pop">Who are you?</h1>
+      <div class="callout pop">
+        ⭐ <b>Use your real first and last name</b> and your <b>Student ID</b>, exactly as they appear on the class roster. That's how you get credit. Nicknames get zero points!
+      </div>
+      <label class="field pop"><span>First name</span>
+        <input id="first" class="input" autocomplete="given-name" required maxlength="40"></label>
+      <label class="field pop"><span>Last name</span>
+        <input id="last" class="input" autocomplete="family-name" required maxlength="40"></label>
+      <label class="field pop"><span>Student ID</span>
+        <input id="sid" class="input" inputmode="numeric" autocomplete="off" required maxlength="30"></label>
+      <p id="profileErr" class="err hidden"></p>
+      <button class="btn big block pop" type="submit">I'm ready! 🎉</button>
+    </form>
+  </section>
+
+  <!-- 3. Lobby -->
+  <section data-view="lobby" class="hidden">
+    <div class="center stack">
+      <div class="emoji float pop">🎈</div>
+      <h1 class="pop">You're in!</h1>
+      <p class="bigname pop" id="lobbyName"></p>
+      <p class="muted pop">Eyes on the big screen. The game starts soon.</p>
+      <div class="dots pop"><i></i><i></i><i></i></div>
+      <p class="small muted pop">Not you? <a href="#" id="changeMe">Change name or ID</a></p>
+    </div>
+  </section>
+
+  <!-- 4a. Multiple-choice question -->
+  <section data-view="mc" class="hidden qview">
+    <div class="timer"><div class="timer-fill" id="mcTimer"></div></div>
+    <p class="qnum pop" id="mcNum"></p>
+    <p class="qprompt pop" id="mcPrompt"></p>
+    <div id="mcChoices" class="choices"></div>
+  </section>
+
+  <!-- 4b. Heatmap question -->
+  <section data-view="heat" class="hidden qview">
+    <div class="timer"><div class="timer-fill" id="heatTimer"></div></div>
+    <p class="qnum pop" id="heatNum"></p>
+    <p class="qprompt pop" id="heatPrompt"></p>
+    <p class="small muted center pop">Tap the picture to drop your pin, then submit.</p>
+    <div class="heatwrap pop" id="heatWrap">
+      <img id="heatImg" alt="Question image">
+      <div id="heatPin" class="pin hidden"></div>
+      <div id="heatLoading" class="heatloading"><div class="dots"><i></i><i></i><i></i></div></div>
+    </div>
+    <button id="heatSubmit" class="btn big block teal pop" disabled>Lock it in 📍</button>
+  </section>
+
+  <!-- 5. Waiting after answering / time up -->
+  <section data-view="locked" class="hidden">
+    <div class="center stack">
+      <div class="emoji wiggle pop" id="lockedEmoji">🔒</div>
+      <h1 class="pop" id="lockedTitle">Locked in!</h1>
+      <p class="muted pop" id="lockedSub">Hang tight while everyone else answers…</p>
+    </div>
+  </section>
+
+  <!-- 6. Result of a question -->
+  <section data-view="result" class="hidden">
+    <div class="center stack">
+      <div class="emoji pop" id="resEmoji"></div>
+      <h1 class="pop" id="resTitle"></h1>
+      <p class="respts pop" id="resPts"></p>
+      <p class="muted pop" id="resDetail"></p>
+      <div class="rankbadge pop hidden" id="resRank"></div>
+      <div class="card pop totalcard"><span class="muted">Your total</span><b id="resTotal"></b></div>
+      <p class="small muted pop">Next question coming up…</p>
+    </div>
+  </section>
+
+  <!-- 7. Game over -->
+  <section data-view="ended" class="hidden">
+    <div class="center stack">
+      <div class="emoji float pop">🏆</div>
+      <h1 class="pop">That's a wrap!</h1>
+      <div class="rankbadge pop hidden" id="endRank"></div>
+      <div class="card pop totalcard"><span class="muted">Final score</span><b id="endTotal"></b></div>
+      <p class="muted pop" id="endWho"></p>
+      <p class="small muted pop">Your points are recorded. You can close this page.</p>
+    </div>
+  </section>
+
+  <!-- Errors / not found -->
+  <section data-view="oops" class="hidden">
+    <div class="card center stack">
+      <div class="emoji pop">🤔</div>
+      <h1 class="pop" id="oopsTitle">Hmm…</h1>
+      <p class="muted pop" id="oopsMsg"></p>
+      <button class="btn block pop" id="oopsBtn">Try again</button>
+    </div>
+  </section>
+
+  <section data-view="loading">
+    <div class="center" style="padding-top:30vh"><div class="dots"><i></i><i></i><i></i></div></div>
+  </section>
+</main>
+
+<script type="module" src="js/student.js"></script>
+</body>
+</html>

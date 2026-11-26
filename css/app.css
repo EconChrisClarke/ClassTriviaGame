@@ -1,0 +1,196 @@
+/* Class Poll Bonanza — shared styles for the student and teacher sites.
+   Palette and type follow the EconChrisClarke house style: brand red, navy,
+   amber, teal and plum on the house rose; Fraunces for display, Inter for
+   everything else, Jost for the wordmark. */
+
+:root {
+  --red: #C71E1D;
+  --red-dk: #9E1716;
+  --navy: #1B3A5C;
+  --navy-dk: #122840;
+  --amber: #E8A33D;
+  --amber-dk: #B97F25;
+  --teal: #2E8B7A;
+  --teal-dk: #1F6A5C;
+  --plum: #7C4A8D;
+  --plum-dk: #5C3469;
+  --slate: #6B7280;
+  --ink: #111827;
+  --faint: #767C86;
+  --rose: #FFF1F2;
+  --rose-2: #FBE3E6;
+  --line: #E4D8DB;
+  --card: #FFFFFF;
+  --good: #2E8B7A;
+  --bad: #C71E1D;
+
+  --f-display: 'Fraunces', Georgia, serif;
+  --f-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --f-logo: 'Jost', system-ui, sans-serif;
+
+  --r-sm: 12px;
+  --r: 18px;
+  --r-lg: 28px;
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--f-body);
+  color: var(--ink);
+  background-color: var(--rose);
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(199, 30, 29, .07) 0 5px, transparent 6px),
+    radial-gradient(circle at 78% 8%, rgba(232, 163, 61, .12) 0 7px, transparent 8px),
+    radial-gradient(circle at 88% 62%, rgba(46, 139, 122, .09) 0 6px, transparent 7px),
+    radial-gradient(circle at 30% 82%, rgba(124, 74, 141, .08) 0 8px, transparent 9px),
+    radial-gradient(circle at 55% 45%, rgba(27, 58, 92, .05) 0 4px, transparent 5px);
+  background-size: 340px 340px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, .display {
+  font-family: var(--f-display);
+  font-variation-settings: "SOFT" 100, "WONK" 1, "opsz" 144;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.08;
+  margin: 0;
+}
+p { line-height: 1.5; }
+.muted { color: var(--slate); }
+.small { font-size: .875rem; }
+.center { text-align: center; }
+.hidden { display: none !important; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1; }
+.stack > * + * { margin-top: 14px; }
+
+/* ---------- Wordmark ---------- */
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
+.brand svg { width: 38px; height: 38px; flex: none; }
+.brand .ecc { font-family: var(--f-logo); font-weight: 700; color: var(--red);
+  font-size: 10.5px; letter-spacing: .1em; line-height: 1.25; }
+.brand .name { font-family: var(--f-display); font-weight: 800;
+  font-variation-settings: "SOFT" 100, "WONK" 1; font-size: 1.25rem; }
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: 0 6px 0 var(--rose-2), 0 18px 40px -18px rgba(17, 24, 39, .25);
+  padding: 24px;
+}
+
+/* ---------- Buttons: chunky, 3D, bouncy ---------- */
+.btn {
+  --bg: var(--red); --bg-dk: var(--red-dk); --fg: #fff;
+  appearance: none; border: 0; cursor: pointer;
+  font: 700 1.05rem/1 var(--f-body);
+  color: var(--fg); background: var(--bg);
+  padding: 14px 22px; border-radius: var(--r);
+  box-shadow: 0 5px 0 var(--bg-dk);
+  transform: translateY(0);
+  transition: transform .08s ease, box-shadow .08s ease, filter .15s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  text-decoration: none;
+}
+.btn:hover { filter: brightness(1.06); }
+.btn:active, .btn.pressed { transform: translateY(4px); box-shadow: 0 1px 0 var(--bg-dk); }
+.btn:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; filter: grayscale(.3); }
+.btn.big { font-size: 1.3rem; padding: 18px 30px; border-radius: 22px; }
+.btn.block { display: flex; width: 100%; }
+.btn.navy { --bg: var(--navy); --bg-dk: var(--navy-dk); }
+.btn.amber { --bg: var(--amber); --bg-dk: var(--amber-dk); --fg: var(--ink); }
+.btn.teal { --bg: var(--teal); --bg-dk: var(--teal-dk); }
+.btn.plum { --bg: var(--plum); --bg-dk: var(--plum-dk); }
+.btn.ghost { --bg: #fff; --bg-dk: var(--line); --fg: var(--ink); }
+.btn.sm { font-size: .9rem; padding: 9px 14px; border-radius: 12px; box-shadow: 0 3px 0 var(--bg-dk); }
+.btn.sm:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--bg-dk); }
+
+/* The boing: added by JS on release so every tap feels springy. */
+.boing { animation: boing .45s var(--spring); }
+@keyframes boing {
+  0% { transform: translateY(4px) scale(.94); }
+  45% { transform: translateY(-3px) scale(1.06); }
+  70% { transform: translateY(0) scale(.98); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* ---------- Pop-in entrance (stagger with --i) ---------- */
+.pop { animation: pop .55s var(--spring) both; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes pop {
+  0% { opacity: 0; transform: translateY(18px) scale(.7); }
+  100% { opacity: 1; transform: none; }
+}
+.wiggle { animation: wiggle 2.4s ease-in-out infinite; }
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+.float { animation: float 3s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-8px); } }
+.shake { animation: shake .5s ease; }
+@keyframes shake {
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+/* ---------- Forms ---------- */
+label.field { display: block; font-weight: 600; font-size: .95rem; }
+label.field > span { display: block; margin-bottom: 6px; }
+.input, textarea.input, select.input {
+  width: 100%; font: 500 1.05rem var(--f-body); color: var(--ink);
+  padding: 13px 15px; border-radius: var(--r-sm);
+  border: 2.5px solid var(--line); background: #fff;
+  transition: border-color .15s, box-shadow .15s;
+}
+.input:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 4px rgba(27, 58, 92, .12); }
+textarea.input { resize: vertical; min-height: 72px; line-height: 1.4; }
+.input.code { text-transform: uppercase; letter-spacing: .35em; text-align: center;
+  font: 800 2rem var(--f-body); }
+
+.callout {
+  border-radius: var(--r); padding: 14px 16px; font-weight: 500;
+  background: #FFF7E8; border: 2.5px dashed var(--amber); color: #5B3B07;
+}
+.callout b { color: var(--ink); }
+
+/* ---------- Choice colors and shapes ---------- */
+.c0 { --bg: var(--red); --bg-dk: var(--red-dk); }
+.c1 { --bg: var(--navy); --bg-dk: var(--navy-dk); }
+.c2 { --bg: var(--amber); --bg-dk: var(--amber-dk); --fg: var(--ink); }
+.c3 { --bg: var(--teal); --bg-dk: var(--teal-dk); }
+.shape { width: 1.4em; height: 1.4em; flex: none; fill: currentColor; }
+
+/* ---------- Toast ---------- */
+#toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(calc(100% + 40px));
+  visibility: hidden; transition: transform .35s var(--spring), visibility 0s .35s;
+  background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 14px;
+  font-weight: 600; z-index: 1000;
+  max-width: calc(100vw - 32px);
+}
+#toast.show { transform: translateX(-50%) translateY(0); visibility: visible; transition: transform .35s var(--spring); }
+
+/* ---------- Confetti canvas ---------- */
+#confetti { position: fixed; inset: 0; pointer-events: none; z-index: 999; }
+
+/* ---------- Spinner ---------- */
+.dots { display: inline-flex; gap: 6px; }
+.dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--red);
+  animation: dot 1s infinite ease-in-out; }
+.dots i:nth-child(2) { background: var(--amber); animation-delay: .15s; }
+.dots i:nth-child(3) { background: var(--teal); animation-delay: .3s; }
+@keyframes dot { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; }
+}
