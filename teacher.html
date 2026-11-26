@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#C71E1D">
+<title>Class Poll Bonanza · Teacher</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23C71E1D'/%3E%3Cpath d='M21.5 10.5V84.5H90.5' fill='none' stroke='%23fff' stroke-width='9.5'/%3E%3Cpath d='M30 82L80 14M24 26L88 70' fill='none' stroke='%23fff' stroke-width='9.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,600..900,0..100,0..1&family=Inter:wght@400;500;600;700;800&family=Jost:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/teacher.css">
+</head>
+<body>
+<header class="tbar" id="tbar">
+  <a href="#" id="homeLink" aria-label="Home"></a>
+  <div class="row">
+    <span id="who" class="muted small"></span>
+    <button id="signOutBtn" class="btn ghost sm hidden">Sign out</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- Sign in -->
+  <section data-view="signin" class="hidden">
+    <div class="card hero stack center">
+      <div class="emoji wiggle pop">🎓</div>
+      <h1 class="pop">Teacher sign-in</h1>
+      <p class="muted pop">Sign in with the Google account you registered as a teacher.</p>
+      <button id="googleBtn" class="btn big pop">Sign in with Google</button>
+      <button id="emuBtn" class="btn ghost pop hidden">Emulator test sign-in</button>
+      <p class="small muted pop">Students: you're in the wrong place. <a href="./">Join a game here</a>.</p>
+    </div>
+  </section>
+
+  <!-- Signed in but not registered -->
+  <section data-view="notteacher" class="hidden">
+    <div class="card hero stack">
+      <h1 class="pop">One-time setup: register as the teacher</h1>
+      <p class="pop">You're signed in, but this account isn't registered as a teacher yet. This keeps students out of the teacher pages. Do this once:</p>
+      <ol class="steps pop">
+        <li>Open the <a href="https://console.firebase.google.com/project/class-poll-bonanza/firestore/databases/-default-/data" target="_blank" rel="noopener">Firestore data page</a>.</li>
+        <li>Click <b>+ Start collection</b>. Collection ID: <code>teachers</code>.</li>
+        <li>For <b>Document ID</b>, paste your user ID: <span class="uidbox"><code id="myUid"></code> <button id="copyUid" class="btn sm navy">Copy</button></span></li>
+        <li>Add one field: name <code>name</code>, type string, value: your name. Click <b>Save</b>.</li>
+        <li>Come back here and click the button below.</li>
+      </ol>
+      <div class="row pop">
+        <button id="recheckBtn" class="btn">I did it, check again</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Dashboard -->
+  <section data-view="dash" class="hidden">
+    <div class="row dash-head pop">
+      <h1 class="grow">Your question sets</h1>
+      <button id="newQuizBtn" class="btn">+ New question set</button>
+    </div>
+    <div id="quizList" class="quizgrid"></div>
+    <div class="row pop" style="margin-top:36px">
+      <h2 class="grow">Past games &amp; grades</h2>
+      <button id="pastBtn" class="btn ghost">Show past games</button>
+    </div>
+    <div id="pastList" class="pastlist"></div>
+  </section>
+
+  <!-- Editor -->
+  <section data-view="edit" class="hidden">
+    <div class="edit-head card pop">
+      <div class="row">
+        <button id="backBtn" class="btn ghost sm">← All sets</button>
+        <span id="saveState" class="savestate">Saved ✓</span>
+        <span class="grow"></span>
+        <button id="hostBtn" class="btn teal">Host this game ▶</button>
+      </div>
+      <input id="quizTitle" class="input titleinput" placeholder="Name this question set (e.g. Week 5: Elasticity)" maxlength="120">
+      <div class="settings">
+        <label class="field"><span>Participation points</span><input id="setPart" class="input" type="number" step="0.05" min="0"></label>
+        <label class="field"><span>Accuracy points</span><input id="setAcc" class="input" type="number" step="0.05" min="0"></label>
+        <label class="field"><span>Default timer (seconds)</span><input id="setTime" class="input" type="number" step="5" min="5" max="600"></label>
+        <p class="small muted settings-note">Per question: participation is earned for any answer, accuracy only for a correct one. Ties on the leaderboard go to whoever answered faster overall.</p>
+      </div>
+    </div>
+    <div id="qList"></div>
+    <div class="row addrow pop">
+      <button id="addMC" class="btn navy">+ Multiple choice</button>
+      <button id="addHeat" class="btn plum">+ Heatmap (tap the image)</button>
+    </div>
+  </section>
+
+  <section data-view="loading">
+    <div class="center" style="padding-top:30vh"><div class="dots"><i></i><i></i><i></i></div></div>
+  </section>
+</main>
+
+<!-- ======== HOST (projector) ======== -->
+<div id="host" class="host hidden">
+  <div class="host-top">
+    <div id="hostBrand"></div>
+    <div class="host-code" id="hostCorner"></div>
+    <div class="row">
+      <span id="usage" class="usage"></span>
+      <button id="exitHost" class="btn ghost sm">Exit</button>
+    </div>
+  </div>
+
+  <!-- Lobby -->
+  <div class="hv" data-host="lobby">
+    <div class="lobby">
+      <div class="joinpanel card pop">
+        <p class="joinat">Join on your phone at<br><b id="joinUrl"></b></p>
+        <div id="qr" class="qr"></div>
+        <p class="codelabel">Game code</p>
+        <p class="bigcode" id="bigCode"></p>
+      </div>
+      <div class="lobbyright">
+        <div class="remind pop">
+          ⭐ Use your <b>real first and last name</b> and <b>Student ID</b>. That's how you get credit!
+        </div>
+        <div class="row">
+          <h2 class="grow"><span id="pCount" class="pcount">0</span> players</h2>
+          <button id="startBtn" class="btn big teal" disabled>Start game ▶</button>
+        </div>
+        <div id="bubbles" class="bubbles"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Question -->
+  <div class="hv" data-host="question">
+    <div class="qhead">
+      <span class="qcount" id="hQnum"></span>
+      <div class="ring" id="ring">
+        <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="ring-bg"/><circle cx="60" cy="60" r="52" class="ring-fg" id="ringFg"/></svg>
+        <span id="ringNum">20</span>
+      </div>
+      <div class="anscount"><b id="ansCount">0</b><span>answers</span></div>
+    </div>
+    <h1 class="hprompt pop" id="hPrompt"></h1>
+    <div class="qbody" id="hBody"></div>
+    <div class="row hostctl">
+      <button id="addTime" class="btn ghost">+10 seconds</button>
+      <button id="endNow" class="btn amber">End question now</button>
+    </div>
+  </div>
+
+  <!-- Reveal -->
+  <div class="hv" data-host="reveal">
+    <div class="qhead"><span class="qcount" id="rQnum"></span><span class="grow"></span><span class="rstat" id="rStat"></span></div>
+    <h1 class="hprompt" id="rPrompt"></h1>
+    <div class="qbody" id="rBody"></div>
+    <div class="row hostctl"><button id="toBoard" class="btn big">Leaderboard 🏆</button></div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="hv" data-host="board">
+    <h1 class="center boardtitle pop">Leaderboard</h1>
+    <p class="center muted pop" id="boardSub"></p>
+    <div id="boardList" class="board"></div>
+    <div class="row hostctl"><button id="nextBtn" class="btn big teal">Next question ▶</button></div>
+  </div>
+
+  <!-- Final -->
+  <div class="hv" data-host="final">
+    <h1 class="center boardtitle pop">Final results! 🎉</h1>
+    <div class="podium" id="podium"></div>
+    <div id="finalList" class="board compact"></div>
+    <div class="row hostctl">
+      <button id="csvBtn" class="btn big navy">Download grades (CSV)</button>
+      <button id="doneBtn" class="btn big ghost">Back to dashboard</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/teacher.js"></script>
+</body>
+</html>
