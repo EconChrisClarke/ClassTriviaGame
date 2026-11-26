@@ -17,10 +17,16 @@ const imgCache = new Map();
 
 /* ---------- Local memory (survives refresh) ---------- */
 const PROFILE_KEY = 'cpb:profile';
+const LAST_CODE_KEY = 'cpb:lastCode';
 const storeKey = () => `cpb:g:${code}:${uid}`;
 function loadJSON(k, fallback) { try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } }
-let store = { joined: false, ans: {}, seen: {}, res: {} };
+let store = { joined: false, ans: {}, seen: {}, res: {}, ack: {} };
+const pending = new Map();   // question index -> in-flight answer write
+const resultsSeen = new Set(); // questions whose results have reached this phone
+// Must match the teacher's rule in closeQuestion(): answers later than timer + 2.5 s don't count.
+const GRACE_MS = 2500;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const saveStore = () => saveJSON(storeKey(), store);
 const total = () => Object.values(store.res).reduce((a, b) => a + b, 0);
 
@@ -49,7 +55,12 @@ F.onAuthStateChanged(auth, async user => {
   }
   if (uid === user.uid) return;
   uid = user.uid;
-  if (code) startWithCode(); else showView('code');
+  if (code) startWithCode();
+  else {
+    // Opened the plain site address: offer the last game this phone joined.
+    try { $('#codeInput').value = localStorage.getItem(LAST_CODE_KEY) || ''; } catch { /* ignore */ }
+    showView('code');
+  }
 });
 
 $('#codeInput').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
@@ -63,7 +74,9 @@ $('#codeBtn').addEventListener('click', () => {
 });
 
 function startWithCode() {
-  store = loadJSON(storeKey(), { joined: false, ans: {}, seen: {}, res: {} });
+  store = loadJSON(storeKey(), { joined: false, ans: {}, seen: {}, res: {}, ack: {} });
+  store.ack = store.ack || {};
+  try { localStorage.setItem(LAST_CODE_KEY, code); } catch { /* private mode */ }
   showView('loading');
   if (unsub) unsub();
   let first = true;
@@ -253,13 +266,18 @@ async function submit(q, payload) {
   store.ans[q.idx] = payload; saveStore();
   navigator.vibrate?.(25);
   setTimeout(() => { if (game?.status === 'question' && game.q?.idx === q.idx) { lastRendered = ''; render(); } }, 350);
+  const write = F.setDoc(F.doc(db, 'games', code, 'answers', `${q.idx}_${uid}`), {
+    uid, q: q.idx, ...payload, at: F.serverTimestamp()
+  });
+  pending.set(q.idx, write);
   try {
-    await F.setDoc(F.doc(db, 'games', code, 'answers', `${q.idx}_${uid}`), {
-      uid, q: q.idx, ...payload, at: F.serverTimestamp()
-    });
+    await write;
+    // true = the server confirmed before results came out; 'later' = confirmed after (needs a time check).
+    store.ack[q.idx] = resultsSeen.has(q.idx) ? 'later' : true; saveStore();
   } catch (e) {
     // permission-denied here means an answer already exists (e.g. two tabs). Keep the first.
-    if (e.code !== 'permission-denied') {
+    if (e.code === 'permission-denied') { store.ack[q.idx] = true; saveStore(); }
+    else {
       console.error(e);
       delete store.ans[q.idx]; saveStore();
       toast('Answer didn\'t send. Try again!');
@@ -269,16 +287,44 @@ async function submit(q, payload) {
 }
 
 /* ---------- Results ---------- */
+async function arrivedInTime(idx) {
+  if (store.ack[idx] === 'late') return false;
+  try {
+    const snap = await F.getDocFromServer(F.doc(db, 'games', code, 'answers', `${idx}_${uid}`));
+    if (!snap.exists()) return false;
+    const at = snap.data().at?.toMillis?.();
+    const q = game.q;
+    const start = q?.idx === idx ? q.startAt?.toMillis?.() : null;
+    if (at == null || start == null) return true;
+    return at - start <= q.time * 1000 + GRACE_MS;
+  } catch (e) {
+    console.warn('Could not confirm answer time', e);
+    return false;
+  }
+}
+
 function myRank(list) {
-  const i = (list || []).findIndex(t => t.uid === uid);
+  const i = (list || []).findIndex(t => t.uid === uid && t.pts > 0);  // no badge for 0 points
   return i >= 0 ? i + 1 : 0;
 }
 const medal = r => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : '🏅');
 
-function showResult() {
+async function showResult() {
   const rv = game.reveal, q = game.q;
   const idx = rv.idx;
-  const a = store.ans[idx];
+  const a0 = store.ans[idx];
+  resultsSeen.add(idx);
+  let late = false;
+  if (a0 && store.ack[idx] !== true) {
+    // Results arrived before the server confirmed our answer (weak signal, reconnect, or page reload).
+    // Check the server's own timestamp on the answer, using the same cutoff the teacher's laptop uses.
+    showView('loading');
+    if (pending.has(idx)) await Promise.race([pending.get(idx).catch(() => {}), sleep(4000)]);
+    late = !(await arrivedInTime(idx));
+    if (game.status !== 'reveal' || game.reveal?.idx !== idx) return;
+    store.ack[idx] = late ? 'late' : true; saveStore();
+  }
+  const a = late ? null : a0;
   const pts = game.pts;
   let correct = false;
   if (a) {
@@ -290,7 +336,13 @@ function showResult() {
   const v = $('[data-view="result"]');
   v.classList.toggle('good', correct);
   v.classList.toggle('bad', !correct);
-  if (!a) {
+  if (late) {
+    v.classList.remove('good'); v.classList.add('bad');
+    $('#resEmoji').textContent = '📡';
+    $('#resTitle').textContent = 'Didn\'t arrive in time';
+    $('#resPts').textContent = '+0';
+    $('#resDetail').textContent = 'Your answer reached us after the timer ended (usually a weak signal), so it doesn\'t count. Try switching between Wi-Fi and cellular data.';
+  } else if (!a) {
     $('#resEmoji').textContent = '😴';
     $('#resTitle').textContent = 'Missed that one!';
     $('#resPts').textContent = '+0';

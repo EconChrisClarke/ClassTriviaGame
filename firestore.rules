@@ -61,7 +61,8 @@ service cloud.firestore {
 
       // One answer per student per question, stamped with server time, never editable.
       match /answers/{aid} {
-        allow read: if ownsGame(g);
+        // Teacher reads all answers; a student may read back only their own (to check it arrived in time).
+        allow read: if ownsGame(g) || (signedIn() && resource.data.uid == request.auth.uid);
         allow create: if signedIn()
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.q is int

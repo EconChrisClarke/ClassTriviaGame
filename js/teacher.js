@@ -547,6 +547,9 @@ function enterHost(code, game, questions, scores) {
   qr.addData(joinUrl(code));
   qr.make();
   $('#qr').innerHTML = qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
+  $('#ovQr').innerHTML = $('#qr').innerHTML;
+  $('#ovUrl').textContent = $('#joinUrl').textContent;
+  $('#ovCode').textContent = code;
   addUsage(0);
 
   // Live player list. Each join is one read for the teacher.
@@ -576,12 +579,21 @@ function enterHost(code, game, questions, scores) {
   else if (s === 'ended') showFinal();
 }
 
+/* Show the join QR on top of any host screen (for latecomers and students who got disconnected). */
+const toggleQr = show => $('#qrOverlay').classList.toggle('hidden', !show);
+$('#showQr').addEventListener('click', () => { toggleQr(true); popIn($('#qrOverlay')); });
+$('#hostCorner').addEventListener('click', () => toggleQr(true));
+$('#closeQr').addEventListener('click', () => toggleQr(false));
+$('#qrOverlay').addEventListener('click', e => { if (e.target.id === 'qrOverlay') toggleQr(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleQr(false); });
+
 function leaveHost() {
   clearInterval(tick);
   H?.unsubP?.(); H?.unsubA?.();
   H = null;
   document.body.style.overflow = '';
   $('#host').classList.add('hidden');
+  toggleQr(false);
   goDash();
 }
 $('#exitHost').addEventListener('click', () => {
@@ -715,7 +727,7 @@ async function closeQuestion(graceMs) {
     const at = a.at?.toMillis?.();
     if (at == null) continue;
     const ms = at - H.startAt;
-    if (ms > limitMs + 2500) continue;  // too late
+    if (ms > limitMs + 2500) continue;  // too late (phones use the same 2.5 s cutoff: GRACE_MS in student.js)
     const pl = sc.players[a.uid] = sc.players[a.uid] || { n: '(unknown)', s: '', r: {} };
     const correct = qd.type === 'heat' ? inOval(a.x, a.y, qd.oval) : qd.correct.includes(a.choice);
     const rec = { p: pts.part + (correct ? pts.acc : 0), ms: Math.max(0, Math.min(ms, limitMs)), c: correct ? 1 : 0 };
