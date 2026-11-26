@@ -62,7 +62,50 @@ async function goDash() {
   renderQuizList();
   $('#pastList').innerHTML = '';
   showView('dash');
+  loadActiveGames();
 }
+
+/** Unfinished games get a Resume button at the top of the dashboard (works from any computer). */
+async function loadActiveGames() {
+  const box = $('#activeList');
+  box.innerHTML = '';
+  try {
+    const snap = await F.getDocs(F.query(F.collection(db, 'games'),
+      F.where('ownerUid', '==', user.uid), F.where('active', '==', true)));
+    addUsage(snap.size || 1);
+    const games = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    box.innerHTML = games.map((g, i) => activeRowHTML(g, i)).join('');
+    popIn(box);
+  } catch (e) { console.warn('Could not load unfinished games', e); }
+}
+
+function gameProgress(g) {
+  if (g.status === 'lobby') return 'waiting in the lobby';
+  if (g.status === 'question' || g.status === 'reveal') return `on question ${(g.q?.idx ?? 0) + 1} of ${g.qCount}`;
+  return g.status;
+}
+
+function activeRowHTML(g, i) {
+  return `<div class="card pastrow activerow pop" style="--i:${i}">
+    <span class="livedot" aria-hidden="true"></span>
+    <b class="grow">Game in progress: ${esc(g.title || 'Untitled')}</b>
+    <span class="muted small">code ${g.id} · ${gameProgress(g)} · started ${g.createdAt?.toDate?.().toLocaleString() || ''}</span>
+    <button class="btn teal sm" data-resume="${g.id}">Resume ▶</button>
+    <button class="btn ghost sm" data-dismiss="${g.id}">Dismiss</button>
+  </div>`;
+}
+
+$('#activeList').addEventListener('click', async e => {
+  const r = e.target.closest('[data-resume]');
+  if (r) { location.hash = `host/${r.dataset.resume}`; resumeHost(r.dataset.resume); return; }
+  const d = e.target.closest('[data-dismiss]');
+  if (d) {
+    if (!confirm('Hide this unfinished game from the top of your dashboard? Grades so far stay available under Past games.')) return;
+    await F.updateDoc(F.doc(db, 'games', d.dataset.dismiss), { active: false });
+    d.closest('.activerow').remove();
+  }
+});
 
 function renderQuizList() {
   const list = $('#quizList');
@@ -121,11 +164,14 @@ $('#pastBtn').addEventListener('click', async () => {
     <div class="card pastrow pop" style="--i:${i}">
       <b class="grow">${esc(g.title || 'Untitled')}</b>
       <span class="muted small">${g.createdAt?.toDate?.().toLocaleString() || ''} · code ${g.id} · ${g.playerCount ?? '?'} players · ${g.status === 'ended' ? 'finished' : 'not finished'}</span>
+      ${g.status !== 'ended' ? `<button class="btn teal sm" data-resume="${g.id}">Resume ▶</button>` : ''}
       <button class="btn navy sm" data-csv="${g.id}">Download grades</button>
     </div>`).join('') : '<p class="muted">No games yet.</p>';
   popIn($('#pastList'));
 });
 $('#pastList').addEventListener('click', e => {
+  const r = e.target.closest('[data-resume]');
+  if (r) { location.hash = `host/${r.dataset.resume}`; resumeHost(r.dataset.resume); return; }
   const b = e.target.closest('[data-csv]');
   if (b) downloadCSV(b.dataset.csv);
 });
@@ -465,7 +511,7 @@ async function startHost(q) {
   const game = {
     ownerUid: user.uid, quizId: q.id, title: q.title || 'Class Poll Bonanza', createdAt: F.serverTimestamp(),
     status: 'lobby', qCount: qs.length, pts: { part: settings.part, acc: settings.acc },
-    q: null, reveal: null, final: null, playerCount: 0
+    q: null, reveal: null, final: null, playerCount: 0, active: true
   };
   await F.setDoc(F.doc(db, 'games', code), game);
   await F.setDoc(F.doc(db, 'games', code, 'private', 'quiz'), { questions: qs, settings });
@@ -539,7 +585,7 @@ function leaveHost() {
   goDash();
 }
 $('#exitHost').addEventListener('click', () => {
-  if (H && H.game.status !== 'ended' && !confirm('Leave this game? You can come back to it later from the same browser using the link in the address bar.')) return;
+  if (H && H.game.status !== 'ended' && !confirm('Leave this game? Students\' answers are saved. You can pick it up again with the Resume button on your dashboard, from any computer.')) return;
   leaveHost();
 });
 $('#doneBtn').addEventListener('click', leaveHost);
@@ -793,7 +839,7 @@ async function endGame() {
     if (!H.scores.players[uid]) H.scores.players[uid] = { n: p.name, s: p.studentId, r: {} };
   }
   await Promise.all([
-    setGame({ status: 'ended', final: { top }, playerCount: Object.keys(H.scores.players).length }),
+    setGame({ status: 'ended', final: { top }, playerCount: Object.keys(H.scores.players).length, active: false }),
     F.setDoc(F.doc(db, 'games', H.code, 'private', 'scores'), H.scores)
   ]);
   showFinal();
