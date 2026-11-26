@@ -41,9 +41,17 @@ async function student(i) {
     const delay = 500 + Math.random() * Math.min(q.time * 1000 * 0.6, 8000);
     setTimeout(async () => {
       const right = Math.random() < skill;
-      const payload = q.type === 'heat'
-        ? (right ? { x: 0.5 + (Math.random() - .5) * .1, y: 0.5 + (Math.random() - .5) * .1 } : { x: Math.random(), y: Math.random() })
-        : { choice: right ? 0 : Math.floor(Math.random() * q.choices.length) };
+      // Test images put the answer at the centre; two-dot tests put the second spot at (0.2, 0.2).
+      const near = (cx, cy) => [cx + (Math.random() - .5) * .06, cy + (Math.random() - .5) * .06];
+      let payload;
+      if (q.type === 'heat' && q.dots === 2) {
+        const r = Math.random();
+        const pts = r < skill ? [near(.5, .5), near(.2, .2)] : r < (skill + 1) / 2 ? [near(.5, .5), [Math.random(), .9]] : [[.9, .1], [.1, .9]];
+        if (Math.random() < .5) pts.reverse();   // any order is fine
+        payload = { x: pts.map(p => p[0]), y: pts.map(p => p[1]) };
+      } else if (q.type === 'heat') {
+        payload = right ? { x: 0.5 + (Math.random() - .5) * .1, y: 0.5 + (Math.random() - .5) * .1 } : { x: Math.random(), y: Math.random() };
+      } else payload = { choice: right ? 0 : Math.floor(Math.random() * q.choices.length) };
       try {
         await setDoc(doc(db, 'games', code, 'answers', `${q.idx}_${uid}`), { uid, q: q.idx, ...payload, at: serverTimestamp() });
         answered++;

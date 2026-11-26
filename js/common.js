@@ -97,6 +97,24 @@ export function inOval(x, y, o) {
   const dx = (x - o.cx) / o.rx, dy = (y - o.cy) / o.ry;
   return dx * dx + dy * dy <= 1;
 }
+/** The correct ovals of a heatmap question: one, or two for a two-dot question. */
+export function heatOvals(q) {
+  return (q?.dots === 2 ? [q.oval, q.oval2] : [q?.oval]).filter(Boolean);
+}
+/** The pins in an answer: {x, y} for one dot, or {x: [x1, x2], y: [y1, y2]} for two. */
+export function answerPins(a) {
+  if (!a || a.x == null) return [];
+  return Array.isArray(a.x) ? a.x.map((x, i) => [x, a.y[i]]) : [[a.x, a.y]];
+}
+/** How many ovals got a pin, matching pins to ovals in whichever order scores best (any order). */
+export function heatHits(a, ovals) {
+  const pins = answerPins(a);
+  if (!pins.length || !ovals.length) return 0;
+  const hit = (p, o) => (p && o && inOval(p[0], p[1], o) ? 1 : 0);
+  if (ovals.length === 1) return pins.some(p => hit(p, ovals[0])) ? 1 : 0;
+  const [p0, p1] = pins, [o0, o1] = ovals;
+  return Math.max(hit(p0, o0) + hit(p1, o1), hit(p0, o1) + hit(p1, o0));
+}
 export function fmtPts(n) {
   const r = Math.round(n * 100) / 100;
   return Number.isInteger(r) ? r.toFixed(1) : String(r);

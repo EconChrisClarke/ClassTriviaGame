@@ -2,7 +2,7 @@
 // Reads: one listener on the game doc (1 read per state change), plus one image
 // read per heatmap question. Writes: one player doc, one answer per question.
 import {
-  F, db, auth, $, esc, showView, toast, confetti, brandHTML, SHAPES, CHOICE_NAMES, inOval, fmtPts
+  F, db, auth, $, esc, showView, toast, confetti, brandHTML, SHAPES, CHOICE_NAMES, heatOvals, heatHits, fmtPts
 } from './common.js';
 
 $('#brand').innerHTML = brandHTML();
@@ -217,14 +217,26 @@ function showMC(q) {
   startTimer(q, $('#mcTimer'), timeUp(q));
 }
 
-/* Heatmap */
-let pin = null;
+/* Heatmap: one pin, or two for a two-dot question */
+let pins = [];
+function placePinEl(el, p) {
+  el.style.left = `${p.x * 100}%`; el.style.top = `${p.y * 100}%`;
+  el.classList.remove('hidden');
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+}
 async function showHeat(q) {
+  const need = q.dots === 2 ? 2 : 1;
   $('#heatNum').textContent = qLabel(q);
   $('#heatPrompt').textContent = q.prompt || '';
-  pin = null;
+  $('#heatHint').textContent = need === 2
+    ? 'Drop 2 pins: tap two spots. Tap again to move the closer pin.'
+    : 'Tap the picture to drop your pin, then submit.';
+  pins = [];
   $('#heatPin').classList.add('hidden');
+  $('#heatPin2').classList.add('hidden');
+  $('#heatReset').classList.add('hidden');
   $('#heatSubmit').disabled = true;
+  $('#heatSubmit').textContent = need === 2 ? 'Lock in both pins 📍📍' : 'Lock it in 📍';
   $('#heatLoading').classList.remove('hidden');
   showView('heat');
   startTimer(q, $('#heatTimer'), timeUp(q));
@@ -249,15 +261,30 @@ async function showHeat(q) {
     if (!r.width || !r.height) return;
     const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    pin = { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
-    const p = $('#heatPin');
-    p.style.left = `${x * 100}%`; p.style.top = `${y * 100}%`;
-    p.classList.remove('hidden');
-    p.style.animation = 'none'; void p.offsetWidth; p.style.animation = '';
-    $('#heatSubmit').disabled = false;
+    const p = { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
+    let slot = pins.length;
+    if (slot >= need) {
+      // Both pins placed: move whichever is closer to the tap.
+      const d = pp => (pp.x - p.x) ** 2 + (pp.y - p.y) ** 2;
+      slot = need === 1 ? 0 : (d(pins[0]) <= d(pins[1]) ? 0 : 1);
+    }
+    pins[slot] = p;
+    placePinEl(slot === 0 ? $('#heatPin') : $('#heatPin2'), p);
+    $('#heatSubmit').disabled = pins.length < need;
+    $('#heatReset').classList.toggle('hidden', need < 2);
     navigator.vibrate?.(15);
   };
-  $('#heatSubmit').onclick = () => { if (pin) submit(q, pin); };
+  $('#heatReset').onclick = ev => {
+    ev.stopPropagation();
+    pins = [];
+    $('#heatPin').classList.add('hidden'); $('#heatPin2').classList.add('hidden');
+    $('#heatReset').classList.add('hidden');
+    $('#heatSubmit').disabled = true;
+  };
+  $('#heatSubmit').onclick = () => {
+    if (pins.length < need) return;
+    submit(q, need === 1 ? pins[0] : { x: pins.map(p => p.x), y: pins.map(p => p.y) });
+  };
 }
 
 /* Submit one answer: create-only, stamped with server time. */
@@ -326,12 +353,12 @@ async function showResult() {
   }
   const a = late ? null : a0;
   const pts = game.pts;
-  let correct = false;
-  if (a) {
-    if (rv.oval) correct = a.x != null && inOval(a.x, a.y, rv.oval);
-    else correct = (rv.correct || []).includes(a.choice);
-  }
-  const earned = a ? pts.part + (correct ? pts.acc : 0) : 0;
+  // Same scoring as the teacher: each heatmap oval that gets a pin earns its share of accuracy points.
+  const ovals = rv.oval ? heatOvals(rv) : [];
+  let share = 0;
+  if (a) share = rv.oval ? heatHits(a, ovals) / ovals.length : ((rv.correct || []).includes(a.choice) ? 1 : 0);
+  const correct = share === 1, partial = share > 0 && share < 1;
+  const earned = a ? pts.part + pts.acc * share : 0;
   if (store.res[idx] == null && store.seen[idx] != null) { store.res[idx] = earned; saveStore(); }
   const v = $('[data-view="result"]');
   v.classList.toggle('good', correct);
@@ -347,6 +374,12 @@ async function showResult() {
     $('#resTitle').textContent = 'Missed that one!';
     $('#resPts').textContent = '+0';
     $('#resDetail').textContent = 'Answer the next one to earn participation points.';
+  } else if (partial) {
+    v.classList.add('good'); v.classList.remove('bad');
+    $('#resEmoji').textContent = '👍';
+    $('#resTitle').textContent = 'Half right!';
+    $('#resPts').textContent = `+${fmtPts(earned)}`;
+    $('#resDetail').textContent = 'One of your two pins landed in a right spot. Both right spots are circled on the big screen.';
   } else if (correct) {
     $('#resEmoji').textContent = ['🎉', '🤩', '🔥', '🙌', '💯'][idx % 5];
     $('#resTitle').textContent = 'Correct!';

@@ -1,6 +1,6 @@
 // Teacher side of Class Poll Bonanza: question editor, hosting, scoring, grade export.
 import {
-  F, db, auth, USE_EMU, $, $$, esc, showView, popIn, toast, confetti, brandHTML, SHAPES, inOval, fmtPts
+  F, db, auth, USE_EMU, $, $$, esc, showView, popIn, toast, confetti, brandHTML, SHAPES, heatOvals, heatHits, answerPins, fmtPts
 } from './common.js';
 import qrcode from './vendor/qrcode.mjs';
 import { FREE_READS_PER_DAY } from './config.js';
@@ -183,7 +183,7 @@ let saveTimer = null;
 function newQuestion(type, time) {
   return {
     id: uidShort(), type, prompt: '', time: time || DEFAULTS.time, imageId: null,
-    choices: type === 'mc' ? ['', '', '', ''] : [], correct: type === 'mc' ? [0] : [], oval: null
+    choices: type === 'mc' ? ['', '', '', ''] : [], correct: type === 'mc' ? [0] : [], oval: null, oval2: null, dots: 1
   };
 }
 
@@ -258,7 +258,8 @@ function questionIssues(q) {
     if (q.choices.some(c => !c.trim())) out.push('Blank choices are removed when you host.');
   } else {
     if (!q.imageId) out.push('Upload an image.');
-    else if (!q.oval) out.push('Drag on the image to draw the correct oval.');
+    else if (!q.oval) out.push(q.dots === 2 ? 'Draw oval 1 on the image.' : 'Drag on the image to draw the correct oval.');
+    else if (q.dots === 2 && !q.oval2) out.push('Now draw oval 2 (click "Oval 2", then drag).');
   }
   return out;
 }
@@ -300,8 +301,21 @@ function renderQuestions(scrollToEnd = false) {
           </div>
           ${q.choices.length < 4 ? '<button class="btn ghost sm" data-act="addchoice" style="margin-top:10px">+ Add choice</button>' : ''}
           <p class="hint">Tick ✓ the correct answer. Tick more than one if several count as correct.</p>` : `
+          <div class="row" style="margin-top:12px">
+            <div class="seg" role="group" aria-label="Number of dots">
+              <button data-dots="1" class="${q.dots !== 2 ? 'on' : ''}">1 dot</button>
+              <button data-dots="2" class="${q.dots === 2 ? 'on' : ''}">2 dots</button>
+            </div>
+            ${q.dots === 2 && q.imageId ? `<span class="small muted">Drawing:</span>
+            <div class="seg" role="group" aria-label="Which oval to draw">
+              <button data-ovalpick="1" class="${drawSlot(q) === 1 ? 'on' : ''}"><span class="swatch s1"></span>Oval 1</button>
+              <button data-ovalpick="2" class="${drawSlot(q) === 2 ? 'on' : ''}"><span class="swatch s2"></span>Oval 2</button>
+            </div>` : ''}
+          </div>
           <div class="ovalwrap" style="margin-top:12px">${q.imageId ? '<div class="dots"><i></i><i></i><i></i></div>' : ''}</div>
-          ${q.imageId ? '<p class="hint">Click and drag on the image to draw the correct region. Taps inside the oval count as correct. Drag again to redraw.</p>' : ''}`}
+          ${q.imageId ? `<p class="hint">${q.dots === 2
+            ? 'Students drop two pins, in any order. Each oval that gets a pin earns half the accuracy points. Pick an oval above, then drag on the image to draw it.'
+            : 'Click and drag on the image to draw the correct region. Taps inside the oval count as correct. Drag again to redraw.'}</p>` : ''}`}
           <p class="hint warn issues">${questionIssues(q).join(' ')}</p>
         </div>
         <div>
@@ -328,7 +342,7 @@ function renderQuestions(scrollToEnd = false) {
     } else {
       const wrap = $('.ovalwrap', card);
       wrap.innerHTML = `<div class="ovaleditor"><img src="${src}" alt="" draggable="false">
-        <svg viewBox="0 0 1 1" preserveAspectRatio="none"><ellipse class="ov" fill="rgba(46,139,122,.25)" stroke="#2E8B7A" stroke-width="3" vector-effect="non-scaling-stroke" stroke-dasharray="8 5"/></svg></div>`;
+        <svg viewBox="0 0 1 1" preserveAspectRatio="none"><ellipse class="ov" fill="rgba(46,139,122,.25)" stroke="#2E8B7A" stroke-width="3" vector-effect="non-scaling-stroke" stroke-dasharray="8 5"/><ellipse class="ov2" fill="rgba(124,74,141,.25)" stroke="#7C4A8D" stroke-width="3" vector-effect="non-scaling-stroke" stroke-dasharray="8 5"/></svg></div>`;
       wireOval(wrap.firstElementChild, q, card);
     }
   });
@@ -336,8 +350,16 @@ function renderQuestions(scrollToEnd = false) {
   if (scrollToEnd) list.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function drawOval(svgEl, o) {
-  const e = $('.ov', svgEl);
+// Which oval a two-dot question is currently drawing (editor-only, not saved).
+const drawSlots = new Map();
+function drawSlot(q) {
+  if (q.dots !== 2) return 1;
+  if (!drawSlots.has(q.id)) drawSlots.set(q.id, q.oval && !q.oval2 ? 2 : 1);
+  return drawSlots.get(q.id);
+}
+
+function drawOval(svgEl, o, cls = '.ov') {
+  const e = $(cls, svgEl);
   if (!o) { e.setAttribute('rx', 0); e.setAttribute('ry', 0); return; }
   e.setAttribute('cx', o.cx); e.setAttribute('cy', o.cy); e.setAttribute('rx', o.rx); e.setAttribute('ry', o.ry);
 }
@@ -345,24 +367,35 @@ function drawOval(svgEl, o) {
 function wireOval(ed, q, card) {
   const svg = $('svg', ed);
   drawOval(svg, q.oval);
-  let start = null;
+  drawOval(svg, q.dots === 2 ? q.oval2 : null, '.ov2');
+  let start = null, key = 'oval';
   const pt = ev => {
     const r = ed.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) };
   };
-  ed.addEventListener('pointerdown', ev => { ev.preventDefault(); ed.setPointerCapture(ev.pointerId); start = pt(ev); });
+  const cls = () => (key === 'oval2' ? '.ov2' : '.ov');
+  ed.addEventListener('pointerdown', ev => {
+    ev.preventDefault(); ed.setPointerCapture(ev.pointerId); start = pt(ev);
+    key = drawSlot(q) === 2 ? 'oval2' : 'oval';
+  });
   ed.addEventListener('pointermove', ev => {
     if (!start) return;
     const p = pt(ev);
-    q.oval = { cx: (start.x + p.x) / 2, cy: (start.y + p.y) / 2, rx: Math.abs(p.x - start.x) / 2, ry: Math.abs(p.y - start.y) / 2 };
-    drawOval(svg, q.oval);
+    q[key] = { cx: (start.x + p.x) / 2, cy: (start.y + p.y) / 2, rx: Math.abs(p.x - start.x) / 2, ry: Math.abs(p.y - start.y) / 2 };
+    drawOval(svg, q[key], cls());
   });
   ed.addEventListener('pointerup', () => {
     if (!start) return;
     start = null;
-    if (!q.oval || q.oval.rx < 0.01 || q.oval.ry < 0.01) { q.oval = null; drawOval(svg, null); toast('Drag to draw a bigger oval.'); }
+    const o = q[key];
+    if (!o || o.rx < 0.01 || o.ry < 0.01) { q[key] = null; drawOval(svg, null, cls()); toast('Drag to draw a bigger oval.'); }
     else {
-      for (const k of ['cx', 'cy', 'rx', 'ry']) q.oval[k] = Math.round(q.oval[k] * 10000) / 10000;
+      for (const k of ['cx', 'cy', 'rx', 'ry']) o[k] = Math.round(o[k] * 10000) / 10000;
+      // After drawing oval 1 of a two-dot question, switch to oval 2 if it's still empty.
+      if (q.dots === 2 && key === 'oval' && !q.oval2) {
+        drawSlots.set(q.id, 2);
+        $$('[data-ovalpick]', card).forEach(b => b.classList.toggle('on', b.dataset.ovalpick === '2'));
+      }
     }
     $('.issues', card).textContent = questionIssues(q).join(' ');
     dirty();
@@ -400,7 +433,7 @@ $('#qList').addEventListener('change', async e => {
       const ref = await F.addDoc(F.collection(db, 'images'), { ownerUid: user.uid, data, w, h, createdAt: F.serverTimestamp() });
       imageCache.set(ref.id, data);
       q.imageId = ref.id;
-      if (q.type === 'heat') q.oval = null;
+      if (q.type === 'heat') { q.oval = null; q.oval2 = null; drawSlots.delete(q.id); }
       renderQuestions(); dirty();
       toast(`Image added (${Math.round(data.length * 0.75 / 1024)} KB)`);
     } catch (ex) { console.error(ex); toast('Image upload failed. Try a smaller JPG or PNG.'); }
@@ -425,7 +458,13 @@ $('#qList').addEventListener('click', e => {
     const ci = +b.dataset.rmchoice;
     q.choices.splice(ci, 1);
     q.correct = q.correct.filter(x => x !== ci).map(x => (x > ci ? x - 1 : x));
-  } else if (b.dataset.act === 'rmimg') { q.imageId = null; q.oval = null; }
+  } else if (b.dataset.act === 'rmimg') { q.imageId = null; q.oval = null; q.oval2 = null; }
+  else if (b.dataset.dots) { q.dots = +b.dataset.dots; drawSlots.delete(q.id); }
+  else if (b.dataset.ovalpick) {
+    drawSlots.set(q.id, +b.dataset.ovalpick);
+    $$('[data-ovalpick]', b.closest('.qcard')).forEach(x => x.classList.toggle('on', x === b));
+    return;
+  }
   else return;
   renderQuestions(); dirty();
 });
@@ -622,7 +661,8 @@ async function openQuestion(idx) {
   H.closing = false;
   $('#hostCorner').textContent = `Join: ${H.code}`;
   const pub = { idx, type: qd.type, prompt: qd.prompt, time: qd.time, startAt: F.serverTimestamp(),
-    choices: qd.type === 'mc' ? qd.choices : [], imageId: qd.type === 'heat' ? qd.imageId : null };
+    choices: qd.type === 'mc' ? qd.choices : [], imageId: qd.type === 'heat' ? qd.imageId : null,
+    dots: qd.type === 'heat' ? (qd.dots === 2 ? 2 : 1) : 0 };
   renderQuestionScreen(qd, idx);
   hostView('question');
   H.deadline = Date.now() + qd.time * 1000;
@@ -729,16 +769,21 @@ async function closeQuestion(graceMs) {
     const ms = at - H.startAt;
     if (ms > limitMs + 2500) continue;  // too late (phones use the same 2.5 s cutoff: GRACE_MS in student.js)
     const pl = sc.players[a.uid] = sc.players[a.uid] || { n: '(unknown)', s: '', r: {} };
-    const correct = qd.type === 'heat' ? inOval(a.x, a.y, qd.oval) : qd.correct.includes(a.choice);
-    const rec = { p: pts.part + (correct ? pts.acc : 0), ms: Math.max(0, Math.min(ms, limitMs)), c: correct ? 1 : 0 };
-    if (qd.type === 'heat') { rec.x = a.x; rec.y = a.y; } else rec.ch = a.choice;
+    // Heatmap: each oval that gets a pin earns its share of the accuracy points (any order).
+    const ovals = qd.type === 'heat' ? heatOvals(qd) : [];
+    const hits = qd.type === 'heat' ? heatHits(a, ovals) : (qd.correct.includes(a.choice) ? 1 : 0);
+    const share = qd.type === 'heat' ? hits / Math.max(1, ovals.length) : hits;
+    const rec = { p: pts.part + pts.acc * share, ms: Math.max(0, Math.min(ms, limitMs)), c: share === 1 ? 1 : 0 };
+    if (qd.type === 'heat') { rec.x = a.x; rec.y = a.y; if (ovals.length > 1) rec.k = hits; } else rec.ch = a.choice;
     pl.r[idx] = rec;
   }
   if (!sc.closed.includes(idx)) sc.closed.push(idx);
 
   const ranked = rankPlayers();
   const top = ranked.slice(0, 5).map(p => ({ uid: p.uid, name: p.n, pts: Math.round(p.total * 100) / 100 }));
-  const reveal = qd.type === 'heat' ? { idx, oval: qd.oval, correct: null, top } : { idx, correct: qd.correct, oval: null, top };
+  const reveal = qd.type === 'heat'
+    ? { idx, oval: qd.oval, oval2: qd.dots === 2 ? qd.oval2 : null, dots: qd.dots === 2 ? 2 : 1, correct: null, top }
+    : { idx, correct: qd.correct, oval: null, top };
   await Promise.all([
     setGame({ status: 'reveal', reveal, playerCount: Object.keys(sc.players).length }),
     F.setDoc(F.doc(db, 'games', H.code, 'private', 'scores'), sc)
@@ -767,13 +812,15 @@ function showReveal(idx) {
   $('#rQnum').textContent = `Question ${idx + 1} of ${H.questions.length}`;
   $('#rPrompt').textContent = qd.prompt;
   const nRight = recs.filter(r => r.c).length;
-  $('#rStat').textContent = `${nRight} of ${recs.length} correct (${recs.length ? Math.round(100 * nRight / recs.length) : 0}%)`;
+  const nHalf = recs.filter(r => r.k === 1).length;
+  $('#rStat').textContent = `${nRight} of ${recs.length} correct (${recs.length ? Math.round(100 * nRight / recs.length) : 0}%)`
+    + (qd.type === 'heat' && qd.dots === 2 ? ` · ${nHalf} got one of two` : '');
   const body = $('#rBody');
   if (qd.type === 'heat') {
     body.innerHTML = `<div class="heatbig pop"><img alt=""><canvas></canvas></div>`;
     getImage(qd.imageId).then(src => {
       const img = $('img', body);
-      img.onload = () => drawHeat($('canvas', body), img, recs, qd.oval);
+      img.onload = () => drawHeat($('canvas', body), img, recs, heatOvals(qd));
       img.src = src;
     });
   } else {
@@ -792,8 +839,8 @@ function showReveal(idx) {
   if (recs.length && nRight / recs.length >= 0.8) confetti(90);
 }
 
-/** Heat overlay: blur every tap into a density field, colour it, then outline the correct oval. */
-function drawHeat(canvas, img, recs, oval) {
+/** Heat overlay: blur every tap into a density field, colour it, then outline the correct oval(s). */
+function drawHeat(canvas, img, recs, ovals) {
   const W = img.naturalWidth, Hh = img.naturalHeight;
   const scale = Math.min(1, 900 / Math.max(W, Hh));
   const w = Math.round(W * scale), h = Math.round(Hh * scale);
@@ -802,9 +849,8 @@ function drawHeat(canvas, img, recs, oval) {
   const off = document.createElement('canvas'); off.width = w; off.height = h;
   const o = off.getContext('2d');
   const rad = Math.max(14, Math.round(Math.min(w, h) * 0.06));
-  for (const r of recs) {
-    if (r.x == null) continue;
-    const x = r.x * w, y = r.y * h;
+  for (const [px0, py0] of recs.flatMap(answerPins)) {
+    const x = px0 * w, y = py0 * h;
     const g = o.createRadialGradient(x, y, 0, x, y, rad);
     g.addColorStop(0, 'rgba(0,0,0,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     o.fillStyle = g; o.fillRect(x - rad, y - rad, rad * 2, rad * 2);
@@ -822,7 +868,7 @@ function drawHeat(canvas, img, recs, oval) {
     d[i + 3] = Math.round(Math.min(0.85, 0.25 + t * 0.7) * 255);
   }
   ctx.putImageData(px, 0, 0);
-  if (oval) {
+  for (const oval of ovals) {
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(oval.cx * w, oval.cy * h, oval.rx * w, oval.ry * h, 0, 0, Math.PI * 2);
@@ -839,7 +885,7 @@ $('#toBoard').addEventListener('click', () => {
   $('#boardList').innerHTML = ranked.slice(0, 10).map((p, i) => {
     const r = H.scores.players[p.uid].r[idx];
     return `<div class="brow pop" style="--i:${i}"><span class="rk">#${i + 1}</span><span class="nm">${esc(p.n)}</span>
-      ${r?.c ? '<span class="up">✓ +' + fmtPts(r.p) + '</span>' : ''}<span class="pt">${fmtPts(p.total)}</span></div>`;
+      ${r?.c || r?.k ? '<span class="up">✓ +' + fmtPts(r.p) + '</span>' : ''}<span class="pt">${fmtPts(p.total)}</span></div>`;
   }).join('') || '<p class="center muted">No answers yet.</p>';
   hostView('board');
 });
@@ -901,7 +947,7 @@ async function downloadCSV(code, live) {
     const perQ = closed.map(qi => {
       const r = row.r[qi];
       if (!r) { time += (scores.qtimes[qi] || 20) * 1000; return 0; }
-      answered++; part += pts.part; if (r.c) { correct++; acc += pts.acc; } time += r.ms;
+      answered++; part += pts.part; acc += Math.max(0, r.p - pts.part); if (r.c) correct++; time += r.ms;  // partial credit counts
       return r.p;
     });
     const names = [...row.names];
