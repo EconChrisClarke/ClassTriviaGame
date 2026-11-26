@@ -79,7 +79,7 @@ export const LOGO_SVG = `<svg viewBox="0 0 100 100" aria-hidden="true">
 
 export function brandHTML(title = 'Class Poll Bonanza') {
   return `<span class="brand">${LOGO_SVG}<span><span class="name">${esc(title)}</span><br>
-    <span class="ecc">ECONCHRISCLARKE</span></span></span>`;
+    <span class="ecc">ECON CHRIS CLARKE</span></span></span>`;
 }
 
 /* ---------- Choice shapes (triangle, diamond, circle, square) ---------- */
