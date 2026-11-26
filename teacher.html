@@ -103,6 +103,7 @@
     <div class="host-code" id="hostCorner"></div>
     <div class="row">
       <span id="usage" class="usage"></span>
+      <button id="showQr" class="btn navy sm">Show QR code</button>
       <button id="exitHost" class="btn ghost sm">Exit</button>
     </div>
   </div>
@@ -172,6 +173,18 @@
       <button id="csvBtn" class="btn big navy">Download grades (CSV)</button>
       <button id="doneBtn" class="btn big ghost">Back to dashboard</button>
     </div>
+  </div>
+</div>
+
+<!-- Big QR overlay, available on every host screen -->
+<div id="qrOverlay" class="qroverlay hidden" role="dialog" aria-label="Join QR code">
+  <div class="qrcard">
+    <p class="joinat">Scan to join, or go to<br><b id="ovUrl"></b></p>
+    <div id="ovQr" class="qr big"></div>
+    <p class="codelabel">Game code</p>
+    <p class="bigcode" id="ovCode"></p>
+    <p class="muted small">Already joined? Scanning again puts you right back in with your points.</p>
+    <button id="closeQr" class="btn">Close</button>
   </div>
 </div>
 
