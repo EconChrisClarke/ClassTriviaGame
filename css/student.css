@@ -5,7 +5,12 @@
 }
 .topbar .brand svg { width: 30px; height: 30px; }
 .topbar .brand .name { font-size: 1rem; }
-.me { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: .9rem; min-width: 0; }
+.me { display: flex; align-items: center; gap: 8px; font: 700 .9rem var(--f-body); color: var(--ink); min-width: 0;
+  background: none; border: 0; padding: 0; cursor: pointer; }
+.editpen { color: var(--slate); font-size: .85rem; margin-left: -4px; }
+.conn { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 50; background: var(--amber);
+  color: var(--ink); font-weight: 800; font-size: .85rem; padding: 6px 12px; border-radius: 999px; box-shadow: 0 3px 0 var(--amber-dk); }
+.qstatus { text-align: center; font-weight: 700; color: var(--teal); min-height: 1.4em; margin: 12px 0 0; }
 .me #meName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34vw; }
 .pill { background: var(--ink); color: #fff; border-radius: 999px; padding: 6px 11px; font-weight: 800; white-space: nowrap; }
 
@@ -39,12 +44,14 @@ main { max-width: 520px; margin: 0 auto; padding: 8px 16px 32px; }
   box-shadow: 0 6px 0 var(--rose-2); margin-bottom: 18px; min-height: 160px; touch-action: manipulation; }
 .heatwrap img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
 .heatloading { position: absolute; inset: 0; display: grid; place-items: center; background: #fff; }
-.pin { position: absolute; width: 34px; height: 34px; margin: -34px 0 0 -17px; pointer-events: none;
-  animation: pinDrop .45s var(--spring); }
-.pin::before { content: ""; position: absolute; inset: 0; background: var(--red);
-  border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,.35); }
-.pin::after { content: ""; position: absolute; width: 10px; height: 10px; left: 12px; top: 9px; background: #fff; border-radius: 50%; }
-.pin.two::before { background: var(--navy); }
+/* Map-pin marker: the very tip of the pin (and the small dot) is the exact spot that counts. */
+.pin { position: absolute; width: 22px; height: 29px; transform: translate(-50%, -100%); pointer-events: none; z-index: 1; }
+.pin svg { display: block; width: 100%; height: 100%; overflow: visible; transform-origin: 50% 100%;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); animation: pinDrop .4s var(--spring); }
+.pin path { fill: var(--red); stroke: #fff; stroke-width: 1.6; }
+.pin.two path { fill: var(--navy); }
+.pin .tipdot { position: absolute; left: 50%; bottom: 0; width: 7px; height: 7px; border-radius: 50%;
+  transform: translate(-50%, 50%); background: #FFE14D; border: 1.5px solid var(--ink); }
 .resetpins { position: absolute; right: 8px; bottom: 8px; z-index: 2; }
 @keyframes pinDrop { 0% { transform: translateY(-40px) scale(.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
 

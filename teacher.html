@@ -153,7 +153,10 @@
     <div class="qhead"><span class="qcount" id="rQnum"></span><span class="grow"></span><span class="rstat" id="rStat"></span></div>
     <h1 class="hprompt" id="rPrompt"></h1>
     <div class="qbody" id="rBody"></div>
-    <div class="row hostctl"><button id="toBoard" class="btn big">Leaderboard 🏆</button></div>
+    <div class="row hostctl">
+      <button id="reopenBtn" class="btn big ghost" title="Give students more time on this question">↺ Re-open question</button>
+      <button id="toBoard" class="btn big">Leaderboard 🏆</button>
+    </div>
   </div>
 
   <!-- Leaderboard -->
@@ -161,7 +164,10 @@
     <h1 class="center boardtitle pop">Leaderboard</h1>
     <p class="center muted pop" id="boardSub"></p>
     <div id="boardList" class="board"></div>
-    <div class="row hostctl"><button id="nextBtn" class="btn big teal">Next question ▶</button></div>
+    <div class="row hostctl">
+      <button id="backToReveal" class="btn big ghost">← Back to results</button>
+      <button id="nextBtn" class="btn big teal">Next question ▶</button>
+    </div>
   </div>
 
   <!-- Final -->

@@ -59,7 +59,8 @@ service cloud.firestore {
           && request.resource.data.studentId.size() > 0 && request.resource.data.studentId.size() <= 30;
       }
 
-      // One answer per student per question, stamped with server time, never editable.
+      // One answer doc per student per question, stamped with server time on every send.
+      // Students may change their own answer (the teacher ignores anything after the deadline).
       match /answers/{aid} {
         // Teacher reads all answers; a student may read back only their own (to check it arrived in time).
         allow read: if ownsGame(g) || (signedIn() && resource.data.uid == request.auth.uid);
@@ -67,6 +68,12 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.q is int
           && aid == string(request.resource.data.q) + '_' + request.auth.uid
+          && request.resource.data.at == request.time
+          && request.resource.data.keys().hasOnly(['uid', 'q', 'choice', 'x', 'y', 'at']);
+        allow update: if signedIn()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.q == resource.data.q
           && request.resource.data.at == request.time
           && request.resource.data.keys().hasOnly(['uid', 'q', 'choice', 'x', 'y', 'at']);
       }

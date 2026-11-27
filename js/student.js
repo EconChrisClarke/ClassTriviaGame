@@ -1,8 +1,10 @@
 // Student (phone) side of Class Poll Bonanza.
-// Reads: one listener on the game doc (1 read per state change), plus one image
-// read per heatmap question. Writes: one player doc, one answer per question.
+// Reads: one listener on the game doc (1 read per state change), one image read per heatmap
+// question, plus an occasional catch-up read when the connection looks stuck.
+// Writes: the player doc, and one answer doc per question (updated if the student changes it).
 import {
-  F, db, auth, $, esc, showView, toast, confetti, brandHTML, SHAPES, CHOICE_NAMES, heatOvals, heatHits, fmtPts
+  F, db, auth, $, esc, showView, toast, confetti, brandHTML, SHAPES, CHOICE_NAMES,
+  heatOvals, heatHits, answerPins, fmtPts
 } from './common.js';
 
 $('#brand').innerHTML = brandHTML();
@@ -18,17 +20,40 @@ const imgCache = new Map();
 /* ---------- Local memory (survives refresh) ---------- */
 const PROFILE_KEY = 'cpb:profile';
 const LAST_CODE_KEY = 'cpb:lastCode';
+const CLOCK_KEY = 'cpb:clockOffset';
 const storeKey = () => `cpb:g:${code}:${uid}`;
 function loadJSON(k, fallback) { try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } }
-let store = { joined: false, ans: {}, seen: {}, res: {}, ack: {} };
-const pending = new Map();   // question index -> in-flight answer write
-const resultsSeen = new Set(); // questions whose results have reached this phone
-// Must match the teacher's rule in closeQuestion(): answers later than timer + 2.5 s don't count.
-const GRACE_MS = 2500;
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const freshStore = () => ({ joined: false, ans: {}, seen: {}, res: {}, ack: {} });
+let store = freshStore();
 const saveStore = () => saveJSON(storeKey(), store);
 const total = () => Object.values(store.res).reduce((a, b) => a + b, 0);
+
+const pending = new Map();      // question index -> latest in-flight answer write
+const writeSeq = new Map();     // question index -> number of the latest write
+const resultsSeen = new Set();  // questions whose results have reached this phone
+// Must match the teacher's rule in closeQuestion(): answers later than timer + 2.5 s don't count.
+const GRACE_MS = 2500;
+const AUTO_SUBMIT_LEAD_MS = 600;  // send an unsent heatmap answer just before time runs out
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- Server clock ----------
+   Every phone counts down to the same moment the teacher's laptop does: the question's server
+   start time plus its timer. clockOffset = server time - this phone's time. */
+let clockOffset = loadJSON(CLOCK_KEY, null);
+const serverNow = () => Date.now() + (clockOffset ?? 0);
+
+async function syncClock() {
+  try {
+    const ref = F.doc(db, 'games', code, 'players', uid);
+    const t0 = Date.now();
+    await F.updateDoc(ref, { joinedAt: F.serverTimestamp() });
+    const t1 = Date.now();
+    const snap = await F.getDocFromServer(ref);
+    const srv = snap.data()?.joinedAt?.toMillis?.();
+    if (srv) { clockOffset = Math.round(srv - (t0 + t1) / 2); saveJSON(CLOCK_KEY, clockOffset); }
+  } catch (e) { console.warn('Clock sync skipped', e); }
+}
 
 function updateMe() {
   const p = loadJSON(PROFILE_KEY, null);
@@ -74,14 +99,23 @@ $('#codeBtn').addEventListener('click', () => {
 });
 
 function startWithCode() {
-  store = loadJSON(storeKey(), { joined: false, ans: {}, seen: {}, res: {}, ack: {} });
-  store.ack = store.ack || {};
+  store = { ...freshStore(), ...loadJSON(storeKey(), {}) };
   try { localStorage.setItem(LAST_CODE_KEY, code); } catch { /* private mode */ }
   showView('loading');
+  listen(true);
+  if (store.joined) syncClock().then(() => { lastRendered = ''; render(); });
+}
+
+/* ---------- Live connection ---------- */
+let lastSnapAt = Date.now();
+function listen(isFirst = false) {
   if (unsub) unsub();
-  let first = true;
-  unsub = F.onSnapshot(F.doc(db, 'games', code), snap => {
+  let first = isFirst;
+  unsub = F.onSnapshot(F.doc(db, 'games', code), { includeMetadataChanges: true }, snap => {
+    lastSnapAt = Date.now();
+    setConn(!snap.metadata.fromCache);
     if (!snap.exists()) {
+      if (snap.metadata.fromCache) return;  // not sure yet; wait for the server
       oops('Game not found', `There's no game with code ${code}. Double-check the code on the screen.`,
         'Enter a different code', () => { code = ''; if (unsub) unsub(); showView('code'); });
       return;
@@ -91,24 +125,74 @@ function startWithCode() {
       first = false;
       if (!store.joined) { showProfile(); return; }
     }
-    if (store.joined) render();
+    if (store.joined && !profileOpen) render();
   }, err => {
     console.error(err);
     oops('Connection hiccup', 'We lost the connection to the game. Tap to reconnect. Your points are safe.');
   });
 }
 
-/* ---------- Profile ---------- */
+function setConn(ok) { $('#conn').classList.toggle('hidden', ok || !store.joined); }
+
+/* If the phone slept, switched apps or lost signal, fetch the latest state directly from the
+   server instead of waiting for the live connection to recover on its own. */
+let resyncing = false, lastResync = 0;
+async function resync() {
+  if (!code || !uid || !store.joined || resyncing) return;
+  resyncing = true; lastResync = Date.now();
+  try {
+    const snap = await F.getDocFromServer(F.doc(db, 'games', code));
+    if (snap.exists()) {
+      const fresh = snap.data();
+      const stale = !game || fresh.status !== game.status || fresh.q?.idx !== game.q?.idx
+        || fresh.q?.startAt?.toMillis?.() !== game.q?.startAt?.toMillis?.();
+      game = fresh;
+      lastSnapAt = Date.now();
+      setConn(true);
+      if (stale) listen();   // the live connection had fallen behind: restart it
+      if (!profileOpen) render();
+    }
+  } catch (e) { console.warn('Resync failed', e); }
+  finally { resyncing = false; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  keepAwake();
+  resync();
+});
+window.addEventListener('online', resync);
+window.addEventListener('pageshow', e => { if (e.persisted) resync(); });
+// Watchdog: no news for 45 s while the page is open? Double-check with the server.
+setInterval(() => {
+  if (!document.hidden && Date.now() - lastSnapAt > 45000 && Date.now() - lastResync > 45000) resync();
+}, 5000);
+
+/* Keep the screen on during the game so the phone doesn't sleep and drop the connection. */
+let wakeLock = null;
+async function keepAwake() {
+  if (!store.joined || !('wakeLock' in navigator) || document.hidden) return;
+  try { if (!wakeLock || wakeLock.released) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* not allowed */ }
+}
+
+/* ---------- Profile (join, or fix a misspelled name / ID at any time) ---------- */
+let profileOpen = false;
 function showProfile() {
   const p = loadJSON(PROFILE_KEY, {});
   $('#first').value = p.first || '';
   $('#last').value = p.last || '';
   $('#sid').value = p.sid || '';
   $('#profileErr').classList.add('hidden');
+  $('#profileTitle').textContent = store.joined ? 'Fix your name or ID' : 'Who are you?';
+  $('#profileSubmit').textContent = store.joined ? 'Save changes ✓' : 'I\'m ready! 🎉';
+  $('#profileCancel').classList.toggle('hidden', !store.joined);
+  profileOpen = true;
   showView('profile');
 }
+function closeProfile() { profileOpen = false; lastRendered = ''; render(); }
 
 $('#changeMe').addEventListener('click', e => { e.preventDefault(); showProfile(); });
+$('#me').addEventListener('click', () => { if (store.joined) showProfile(); });
+$('#profileCancel').addEventListener('click', closeProfile);
 
 $('#profileForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -118,19 +202,21 @@ $('#profileForm').addEventListener('submit', async e => {
   if (!first || !last) return err('Please enter both your first and last name.');
   if (first.length < 2 && last.length < 2) return err('Please use your full real name.');
   if (!sid) return err('Please enter your Student ID.');
-  const btn = e.submitter || $('#profileForm button');
+  const btn = $('#profileSubmit');
   btn.disabled = true;
+  const wasJoined = store.joined;
   try {
     await F.setDoc(F.doc(db, 'games', code, 'players', uid), {
       name: `${first} ${last}`, studentId: sid, joinedAt: F.serverTimestamp()
     });
     saveJSON(PROFILE_KEY, { first, last, sid });
     store.joined = true; saveStore();
-    confetti(60);
-    render();
+    if (wasJoined) toast(`Saved! You're ${first} ${last} (ID ${sid}).`);
+    else { confetti(60); keepAwake(); syncClock(); }
+    closeProfile();
   } catch (ex) {
     console.error(ex);
-    err('Couldn\'t join. Check your connection and try again.');
+    err('Couldn\'t save. Check your connection and try again.');
   } finally { btn.disabled = false; }
 });
 
@@ -138,28 +224,26 @@ $('#profileForm').addEventListener('submit', async e => {
 let lastRendered = '';
 function render() {
   updateMe();
-  if (!game) return;
+  if (!game || profileOpen) return;
   const s = game.status;
   const q = game.q;
-  const key = `${s}:${q ? q.idx : ''}:${store.ans[q?.idx] ? 'a' : ''}`;
+  const key = `${s}:${q ? q.idx : ''}:${q?.startAt?.toMillis?.() ?? ''}`;
   if (key === lastRendered) {
     // Same screen (e.g. the teacher added time): just refresh the countdown.
-    if (s === 'question' && q && !store.ans[q.idx]) {
-      stopTimer();
-      startTimer(q, q.type === 'heat' ? $('#heatTimer') : $('#mcTimer'), timeUp(q));
-    }
+    if (s === 'question' && q && currentQ) { currentQ = q; startTimer(q); }
+    else if (s === 'question' && q && remainingMs(q) > 0) { lastRendered = ''; render(); }  // time added after time-up
     return;
   }
   lastRendered = key;
   stopTimer();
+  currentQ = null;
 
   if (s === 'lobby') {
-    $('#lobbyName').textContent = loadJSON(PROFILE_KEY, {}).first + ' ' + loadJSON(PROFILE_KEY, {}).last;
+    const p = loadJSON(PROFILE_KEY, {});
+    $('#lobbyName').textContent = `${p.first} ${p.last}`;
     showView('lobby');
   } else if (s === 'question' && q) {
-    if (store.seen[q.idx] == null) { store.seen[q.idx] = Date.now(); saveStore(); }
-    if (store.ans[q.idx]) showLocked('🔒', 'Locked in!', 'Hang tight while everyone else answers…');
-    else if (remainingMs(q) <= 0) showLocked('⏰', 'Time\'s up!', 'The answer is coming up on the big screen.');
+    if (remainingMs(q) <= 0) showTimeUp(q);
     else if (q.type === 'heat') showHeat(q);
     else showMC(q);
   } else if (s === 'reveal' && game.reveal) {
@@ -169,37 +253,51 @@ function render() {
   }
 }
 
+/** Time left on this question, measured against the server clock (same deadline as the teacher). */
 function remainingMs(q) {
-  const seen = store.seen[q.idx] ?? Date.now();
-  return q.time * 1000 - (Date.now() - seen);
+  const totalMs = q.time * 1000;
+  const start = q.startAt?.toMillis?.();
+  if (clockOffset != null && start) return Math.min(totalMs, start + totalMs - serverNow());
+  // Fallback before the clock is synced: count from when this phone first saw the question.
+  const k = `${q.idx}@${start ?? ''}`;
+  if (store.seen[k] == null) { store.seen[k] = Date.now(); saveStore(); }
+  return totalMs - (Date.now() - store.seen[k]);
 }
 
-function startTimer(q, fillEl, onDone) {
+let currentQ = null;
+function startTimer(q) {
+  stopTimer();
+  const fillEl = q.type === 'heat' ? $('#heatTimer') : $('#mcTimer');
   const totalMs = q.time * 1000;
+  let autoSent = false;
   const tick = () => {
     const rem = remainingMs(q);
     const f = Math.max(0, Math.min(1, rem / totalMs));
     fillEl.style.transform = `scaleX(${f})`;
     fillEl.style.backgroundPosition = `${f * 100}% 0`;
-    if (rem <= 0) { onDone(); return; }
+    if (!autoSent && rem <= AUTO_SUBMIT_LEAD_MS) { autoSent = true; autoSubmit(q); }
+    if (rem <= 0) { timerRaf = null; showTimeUp(q); return; }
     timerRaf = requestAnimationFrame(tick);
   };
   tick();
 }
-const timeUp = q => () => { if (!store.ans[q.idx]) { lastRendered = ''; render(); } };
 function stopTimer() { if (timerRaf) cancelAnimationFrame(timerRaf); timerRaf = null; }
 
-function showLocked(emoji, title, sub) {
-  $('#lockedEmoji').textContent = emoji;
-  $('#lockedTitle').textContent = title;
-  $('#lockedSub').textContent = sub;
+function showTimeUp(q) {
+  currentQ = null;
+  const a = store.ans[q.idx];
+  $('#lockedEmoji').textContent = '⏰';
+  $('#lockedTitle').textContent = 'Time\'s up!';
+  $('#lockedSub').textContent = a ? 'Your answer is locked in. Results are coming up on the big screen…'
+    : 'No answer this time. Results are coming up on the big screen…';
   showView('locked');
 }
 
 function qLabel(q) { return `Question ${q.idx + 1} of ${game.qCount}`; }
 
-/* Multiple choice */
+/* Multiple choice: tap to answer; tap another to change it until time runs out. */
 function showMC(q) {
+  currentQ = q;
   $('#mcNum').textContent = qLabel(q);
   $('#mcPrompt').textContent = q.prompt || '';
   const box = $('#mcChoices');
@@ -207,39 +305,61 @@ function showMC(q) {
   box.innerHTML = q.choices.map((c, i) =>
     `<button class="btn choice c${i} pop" style="--i:${i}" data-i="${i}" aria-label="${CHOICE_NAMES[i]}: ${esc(c)}">${SHAPES[i]}<span>${esc(c)}</span></button>`
   ).join('');
+  const mark = () => {
+    const a = store.ans[q.idx];
+    box.classList.toggle('done', !!a);
+    box.querySelectorAll('.choice').forEach(b => b.classList.toggle('chosen', a?.choice === Number(b.dataset.i)));
+    $('#mcStatus').textContent = a ? '✓ Answer sent! Tap a different one to change it.' : '';
+  };
   box.querySelectorAll('.choice').forEach(b => b.addEventListener('click', () => {
-    if (box.classList.contains('done')) return;
-    box.classList.add('done');
-    b.classList.add('chosen');
-    submit(q, { choice: Number(b.dataset.i) });
+    const i = Number(b.dataset.i);
+    if (remainingMs(q) <= 0 || store.ans[q.idx]?.choice === i) return;
+    submit(q, { choice: i }).then(mark);
+    mark();
   }));
+  mark();
   showView('mc');
-  startTimer(q, $('#mcTimer'), timeUp(q));
+  startTimer(q);
 }
 
-/* Heatmap: one pin, or two for a two-dot question */
+/* Heatmap: one pin, or two for a two-dot question. Pins can be moved and re-sent until time
+   runs out; whatever is on the image when time runs out is sent automatically. */
 let pins = [];
+let pinsDirty = false;
 function placePinEl(el, p) {
   el.style.left = `${p.x * 100}%`; el.style.top = `${p.y * 100}%`;
   el.classList.remove('hidden');
-  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  const s = el.firstElementChild;
+  s.style.animation = 'none'; void s.offsetWidth; s.style.animation = '';
 }
+const pinsPayload = need => (need === 1 && pins.length === 1 ? pins[0] : { x: pins.map(p => p.x), y: pins.map(p => p.y) });
+
 async function showHeat(q) {
+  currentQ = q;
   const need = q.dots === 2 ? 2 : 1;
   $('#heatNum').textContent = qLabel(q);
   $('#heatPrompt').textContent = q.prompt || '';
   $('#heatHint').textContent = need === 2
     ? 'Drop 2 pins: tap two spots. Tap again to move the closer pin.'
-    : 'Tap the picture to drop your pin, then submit.';
-  pins = [];
+    : 'Tap the picture to drop your pin. Tap again to move it.';
+  // Restore a previously sent answer (e.g. after a refresh or a re-opened question).
+  pins = answerPins(store.ans[q.idx]).map(([x, y]) => ({ x, y }));
+  pinsDirty = false;
   $('#heatPin').classList.add('hidden');
   $('#heatPin2').classList.add('hidden');
-  $('#heatReset').classList.add('hidden');
-  $('#heatSubmit').disabled = true;
-  $('#heatSubmit').textContent = need === 2 ? 'Lock in both pins 📍📍' : 'Lock it in 📍';
+  pins.forEach((p, i) => placePinEl(i === 0 ? $('#heatPin') : $('#heatPin2'), p));
+  const refresh = () => {
+    const sent = !!store.ans[q.idx];
+    const btn = $('#heatSubmit');
+    btn.disabled = pins.length < need || (sent && !pinsDirty);
+    btn.textContent = sent && !pinsDirty ? '✓ Sent! Move a pin to change it'
+      : sent ? 'Send my new answer 📍' : need === 2 ? 'Lock in both pins 📍📍' : 'Lock it in 📍';
+    $('#heatReset').classList.toggle('hidden', need < 2 || !pins.length);
+  };
+  refresh();
   $('#heatLoading').classList.remove('hidden');
   showView('heat');
-  startTimer(q, $('#heatTimer'), timeUp(q));
+  startTimer(q);
   try {
     let data = imgCache.get(q.imageId);
     if (!data) {
@@ -256,7 +376,7 @@ async function showHeat(q) {
   }
   const wrap = $('#heatWrap');
   wrap.onclick = ev => {
-    if (store.ans[q.idx]) return;
+    if (remainingMs(q) <= 0) return;
     const r = $('#heatImg').getBoundingClientRect();
     if (!r.width || !r.height) return;
     const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
@@ -264,52 +384,72 @@ async function showHeat(q) {
     const p = { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
     let slot = pins.length;
     if (slot >= need) {
-      // Both pins placed: move whichever is closer to the tap.
+      // All pins placed: move whichever is closer to the tap.
       const d = pp => (pp.x - p.x) ** 2 + (pp.y - p.y) ** 2;
       slot = need === 1 ? 0 : (d(pins[0]) <= d(pins[1]) ? 0 : 1);
     }
     pins[slot] = p;
+    pinsDirty = true;
     placePinEl(slot === 0 ? $('#heatPin') : $('#heatPin2'), p);
-    $('#heatSubmit').disabled = pins.length < need;
-    $('#heatReset').classList.toggle('hidden', need < 2);
+    refresh();
     navigator.vibrate?.(15);
   };
   $('#heatReset').onclick = ev => {
     ev.stopPropagation();
-    pins = [];
+    pins = []; pinsDirty = true;
     $('#heatPin').classList.add('hidden'); $('#heatPin2').classList.add('hidden');
-    $('#heatReset').classList.add('hidden');
-    $('#heatSubmit').disabled = true;
+    refresh();
   };
-  $('#heatSubmit').onclick = () => {
+  $('#heatSubmit').onclick = async () => {
     if (pins.length < need) return;
-    submit(q, need === 1 ? pins[0] : { x: pins.map(p => p.x), y: pins.map(p => p.y) });
+    pinsDirty = false; refresh();
+    await submit(q, pinsPayload(need));
+    refresh();
   };
 }
 
-/* Submit one answer: create-only, stamped with server time. */
+/* Time is nearly up: send whatever is on screen if it hasn't been sent yet. */
+function autoSubmit(q) {
+  if (currentQ?.idx !== q.idx || q.type !== 'heat') return;  // multiple choice sends on every tap
+  if (!pinsDirty || !pins.length) return;
+  pinsDirty = false;
+  submit(q, pinsPayload(q.dots === 2 ? 2 : 1));
+}
+
+/* Send (or re-send) this question's answer, stamped with server time. */
 async function submit(q, payload) {
-  if (store.ans[q.idx]) return;
-  store.ans[q.idx] = payload; saveStore();
+  const idx = q.idx;
+  const prev = store.ans[idx];
+  store.ans[idx] = payload;
+  store.ack[idx] = false;
+  saveStore();
   navigator.vibrate?.(25);
-  setTimeout(() => { if (game?.status === 'question' && game.q?.idx === q.idx) { lastRendered = ''; render(); } }, 350);
-  const write = F.setDoc(F.doc(db, 'games', code, 'answers', `${q.idx}_${uid}`), {
-    uid, q: q.idx, ...payload, at: F.serverTimestamp()
+  const seq = (writeSeq.get(idx) || 0) + 1;
+  writeSeq.set(idx, seq);
+  const write = F.setDoc(F.doc(db, 'games', code, 'answers', `${idx}_${uid}`), {
+    uid, q: idx, ...payload, at: F.serverTimestamp()
   });
-  pending.set(q.idx, write);
+  pending.set(idx, write);
   try {
     await write;
+    if (writeSeq.get(idx) !== seq) return;   // a newer change superseded this one
     // true = the server confirmed before results came out; 'later' = confirmed after (needs a time check).
-    store.ack[q.idx] = resultsSeen.has(q.idx) ? 'later' : true; saveStore();
+    store.ack[idx] = resultsSeen.has(idx) ? 'later' : true; saveStore();
   } catch (e) {
-    // permission-denied here means an answer already exists (e.g. two tabs). Keep the first.
-    if (e.code === 'permission-denied') { store.ack[q.idx] = true; saveStore(); }
-    else {
-      console.error(e);
-      delete store.ans[q.idx]; saveStore();
+    if (writeSeq.get(idx) !== seq) return;
+    console.error(e);
+    if (e.code === 'permission-denied' && prev) {
+      // Changing answers isn't allowed by the published rules: the first answer stands.
+      store.ans[idx] = prev; store.ack[idx] = true; saveStore();
+      toast('Couldn\'t change your answer. Your first answer still counts.');
+    } else if (e.code === 'permission-denied') {
+      store.ack[idx] = true; saveStore();   // an answer already exists (e.g. another tab)
+    } else {
+      if (prev) store.ans[idx] = prev; else delete store.ans[idx];
+      store.ack[idx] = !!prev; saveStore();
       toast('Answer didn\'t send. Try again!');
-      lastRendered = ''; render();
     }
+    if (currentQ?.idx === idx) { lastRendered = ''; render(); }
   }
 }
 
@@ -359,7 +499,7 @@ async function showResult() {
   if (a) share = rv.oval ? heatHits(a, ovals) / ovals.length : ((rv.correct || []).includes(a.choice) ? 1 : 0);
   const correct = share === 1, partial = share > 0 && share < 1;
   const earned = a ? pts.part + pts.acc * share : 0;
-  if (store.res[idx] == null && store.seen[idx] != null) { store.res[idx] = earned; saveStore(); }
+  store.res[idx] = earned; saveStore();   // re-opened questions overwrite the earlier result
   const v = $('[data-view="result"]');
   v.classList.toggle('good', correct);
   v.classList.toggle('bad', !correct);
@@ -412,6 +552,3 @@ function showEnded() {
   showView('ended');
   if (r && r <= 3) confetti(200);
 }
-
-// Re-render on return to the tab (timers may have expired in the background).
-document.addEventListener('visibilitychange', () => { if (!document.hidden && store.joined) { lastRendered = ''; render(); } });
