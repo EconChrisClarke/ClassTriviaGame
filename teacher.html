@@ -194,6 +194,24 @@
   </div>
 </div>
 
+<!-- Re-open question dialog -->
+<div id="reopenOverlay" class="qroverlay hidden" role="dialog" aria-labelledby="reopenTitle">
+  <div class="qrcard reopencard">
+    <h2 id="reopenTitle">Re-open question</h2>
+    <p class="muted">Answers already sent still count, and students can change them.</p>
+    <p class="fieldlabel">Time for students to answer</p>
+    <div class="timepick" id="reopenTimes"></div>
+    <div class="row" style="justify-content:center;margin-top:10px">
+      <input id="reopenSecs" class="input" type="number" min="5" max="600" step="5" style="width:110px;text-align:center" aria-label="Seconds">
+      <span class="muted">seconds</span>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:18px">
+      <button id="reopenCancel" class="btn ghost">Cancel</button>
+      <button id="reopenGo" class="btn teal">↺ Re-open</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="js/teacher.js"></script>
 </body>
 </html>

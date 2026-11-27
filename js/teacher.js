@@ -166,15 +166,63 @@ $('#pastBtn').addEventListener('click', async () => {
       <span class="muted small">${g.createdAt?.toDate?.().toLocaleString() || ''} · code ${g.id} · ${g.playerCount ?? '?'} players · ${g.status === 'ended' ? 'finished' : 'not finished'}</span>
       ${g.status !== 'ended' ? `<button class="btn teal sm" data-resume="${g.id}">Resume ▶</button>` : ''}
       <button class="btn navy sm" data-csv="${g.id}">Download grades</button>
+      <button class="btn ghost sm" data-delgame="${g.id}" data-title="${esc(g.title || 'Untitled')}">Delete</button>
     </div>`).join('') : '<p class="muted">No games yet.</p>';
   popIn($('#pastList'));
 });
 $('#pastList').addEventListener('click', e => {
+  const del = e.target.closest('[data-delgame]');
+  if (del) { deleteGame(del.dataset.delgame, del.dataset.title, del); return; }
   const r = e.target.closest('[data-resume]');
   if (r) { location.hash = `host/${r.dataset.resume}`; resumeHost(r.dataset.resume); return; }
   const b = e.target.closest('[data-csv]');
   if (b) downloadCSV(b.dataset.csv);
 });
+
+/** Permanently delete a game: its students' names/IDs, every answer, the grades, and the game itself. */
+async function deleteGame(code, title, btn) {
+  if (!confirm(`Permanently delete "${title}" (code ${code})?\n\nThis erases its grades and every student's name, ID and answers. ` +
+    'It can\'t be undone, so download the grades first if you need them.')) return;
+  const row = btn.closest('.pastrow');
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    const [players, sc, pq] = await Promise.all([
+      F.getDocs(F.collection(db, 'games', code, 'players')),
+      F.getDoc(F.doc(db, 'games', code, 'private', 'scores')),
+      F.getDoc(F.doc(db, 'games', code, 'private', 'quiz'))
+    ]);
+    addUsage(players.size + 2);
+    // Answer IDs are "<question>_<student>", so they can be erased without reading them first.
+    const uids = new Set([...players.docs.map(d => d.id), ...Object.keys(sc.data()?.players || {})]);
+    const nq = pq.data()?.questions?.length || 0;
+    const refs = [];
+    for (const u of uids) {
+      refs.push(F.doc(db, 'games', code, 'players', u));
+      for (let qi = 0; qi < nq; qi++) refs.push(F.doc(db, 'games', code, 'answers', `${qi}_${u}`));
+    }
+    for (let i = 0; i < refs.length; i += 400) {
+      const batch = F.writeBatch(db);
+      refs.slice(i, i + 400).forEach(r => batch.delete(r));
+      await batch.commit();
+      btn.textContent = `Deleting… ${Math.min(100, Math.round(100 * (i + 400) / refs.length))}%`;
+    }
+    // The game doc goes last: the rules check it to confirm you own everything above.
+    const tail = F.writeBatch(db);
+    tail.delete(F.doc(db, 'games', code, 'private', 'scores'));
+    tail.delete(F.doc(db, 'games', code, 'private', 'quiz'));
+    await tail.commit();
+    await F.deleteDoc(F.doc(db, 'games', code));
+    row.remove();
+    $(`#activeList [data-resume="${code}"]`)?.closest('.activerow')?.remove();
+    toast(`Deleted "${title}"`);
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false; btn.textContent = 'Delete';
+    toast(e.code === 'permission-denied'
+      ? 'Delete was blocked. Please re-publish the latest Firestore rules, then try again.'
+      : 'Delete failed. Check your connection and try again.', 6000);
+  }
+}
 
 /* ================= Editor ================= */
 let quiz = null;
@@ -668,8 +716,9 @@ $('#nextBtn').addEventListener('click', () => {
 });
 
 /* ----- One question ----- */
-async function openQuestion(idx, reopen = false) {
-  const qd = H.questions[idx];
+async function openQuestion(idx, reopen = false, secs = null) {
+  // A re-opened question can run for a different length of time than the original.
+  const qd = { ...H.questions[idx], time: secs || H.questions[idx].time };
   H.answers = new Map();
   H.closing = false;
   H.reopened = reopen;   // earlier answers still count, so don't auto-close when "everyone" has answered
@@ -908,8 +957,32 @@ function drawHeat(canvas, img, recs, ovals) {
 $('#reopenBtn').addEventListener('click', () => {
   const idx = H.game.reveal?.idx;
   if (idx == null) return;
-  if (!confirm(`Re-open question ${idx + 1} with a fresh ${H.questions[idx].time}-second timer? Answers already sent still count and can be changed.`)) return;
-  openQuestion(idx, true);
+  const cur = H.questions[idx].time;
+  $('#reopenTitle').textContent = `Re-open question ${idx + 1}`;
+  $('#reopenSecs').value = cur;
+  const opts = [...new Set([10, 15, 20, 30, 45, 60, cur])].sort((a, b) => a - b);
+  $('#reopenTimes').innerHTML = opts.map(s => `<button type="button" class="btn sm ${s === cur ? 'navy' : 'ghost'}" data-secs="${s}">${s} s</button>`).join('');
+  $('#reopenOverlay').classList.remove('hidden');
+  popIn($('#reopenOverlay'));
+  $('#reopenSecs').focus();
+});
+$('#reopenTimes').addEventListener('click', e => {
+  const b = e.target.closest('[data-secs]');
+  if (!b) return;
+  $('#reopenSecs').value = b.dataset.secs;
+  $$('#reopenTimes [data-secs]').forEach(x => { x.classList.toggle('navy', x === b); x.classList.toggle('ghost', x !== b); });
+});
+$('#reopenSecs').addEventListener('keydown', e => { if (e.key === 'Enter') $('#reopenGo').click(); });
+const closeReopen = () => $('#reopenOverlay').classList.add('hidden');
+$('#reopenCancel').addEventListener('click', closeReopen);
+$('#reopenOverlay').addEventListener('click', e => { if (e.target.id === 'reopenOverlay') closeReopen(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeReopen(); });
+$('#reopenGo').addEventListener('click', () => {
+  const idx = H.game.reveal?.idx;
+  const secs = Math.round(+$('#reopenSecs').value);
+  if (!(secs >= 5 && secs <= 600)) { toast('Pick a time between 5 and 600 seconds.'); return; }
+  closeReopen();
+  openQuestion(idx, true, secs);
 });
 $('#backToReveal').addEventListener('click', () => {
   const idx = H.game.reveal?.idx;

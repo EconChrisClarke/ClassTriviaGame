@@ -160,3 +160,9 @@ code { background: var(--rose-2); padding: 2px 7px; border-radius: 6px; font-siz
 .qr.big svg { width: min(58vh, 80vw); max-width: none; }
 .qrcard .bigcode { font-size: 3.4rem; }
 #hostCorner { cursor: pointer; }
+
+/* Re-open dialog */
+.reopencard { max-width: 460px; }
+.reopencard h2 { margin-bottom: 6px; }
+.fieldlabel { font-weight: 700; margin: 16px 0 0; }
+.timepick { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
