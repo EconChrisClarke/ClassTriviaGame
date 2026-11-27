@@ -51,6 +51,7 @@ service cloud.firestore {
 
       match /players/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || ownsGame(g));
+        allow delete: if ownsGame(g);   // teacher deleting a past game
         allow create, update: if signedIn() && request.auth.uid == uid
           && request.resource.data.keys().hasOnly(['name', 'studentId', 'joinedAt'])
           && request.resource.data.name is string
@@ -64,6 +65,7 @@ service cloud.firestore {
       match /answers/{aid} {
         // Teacher reads all answers; a student may read back only their own (to check it arrived in time).
         allow read: if ownsGame(g) || (signedIn() && resource.data.uid == request.auth.uid);
+        allow delete: if ownsGame(g);   // teacher deleting a past game
         allow create: if signedIn()
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.q is int
