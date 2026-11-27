@@ -15,7 +15,8 @@
 <body>
 <header class="topbar">
   <div id="brand"></div>
-  <div id="me" class="me hidden"><span id="meName"></span><span id="meScore" class="pill">0.0 pts</span></div>
+  <button id="me" class="me hidden" type="button" title="Fix your name or ID"><span id="meName"></span><span class="editpen" aria-hidden="true">✎</span><span id="meScore" class="pill">0.0 pts</span></button>
+  <div id="conn" class="conn hidden" role="status">Reconnecting…</div>
 </header>
 
 <main>
@@ -32,7 +33,7 @@
   <!-- 2. Name + student ID -->
   <section data-view="profile" class="hidden">
     <form id="profileForm" class="card stack" novalidate>
-      <h1 class="pop">Who are you?</h1>
+      <h1 class="pop" id="profileTitle">Who are you?</h1>
       <div class="callout pop">
         ⭐ <b>Use your real first and last name</b> and your <b>Student ID</b>, exactly as they appear on the class roster. That's how you get credit. Nicknames get zero points!
       </div>
@@ -43,7 +44,8 @@
       <label class="field pop"><span>Student ID</span>
         <input id="sid" class="input" inputmode="numeric" autocomplete="off" required maxlength="30"></label>
       <p id="profileErr" class="err hidden"></p>
-      <button class="btn big block pop" type="submit">I'm ready! 🎉</button>
+      <button class="btn big block pop" type="submit" id="profileSubmit">I'm ready! 🎉</button>
+      <button class="btn ghost block pop hidden" type="button" id="profileCancel">Cancel</button>
     </form>
   </section>
 
@@ -55,7 +57,7 @@
       <p class="bigname pop" id="lobbyName"></p>
       <p class="muted pop">Eyes on the big screen. The game starts soon.</p>
       <div class="dots pop"><i></i><i></i><i></i></div>
-      <p class="small muted pop">Not you? <a href="#" id="changeMe">Change name or ID</a></p>
+      <p class="small muted pop">Typo? <a href="#" id="changeMe">Fix your name or ID</a> (you can also tap your name at the top, any time).</p>
     </div>
   </section>
 
@@ -65,6 +67,7 @@
     <p class="qnum pop" id="mcNum"></p>
     <p class="qprompt pop" id="mcPrompt"></p>
     <div id="mcChoices" class="choices"></div>
+    <p id="mcStatus" class="qstatus" role="status"></p>
   </section>
 
   <!-- 4b. Heatmap question -->
@@ -73,10 +76,10 @@
     <p class="qnum pop" id="heatNum"></p>
     <p class="qprompt pop" id="heatPrompt"></p>
     <p class="small muted center pop" id="heatHint">Tap the picture to drop your pin, then submit.</p>
-    <div class="heatwrap pop" id="heatWrap">
+    <div class="heatwrap" id="heatWrap">
       <img id="heatImg" alt="Question image">
-      <div id="heatPin" class="pin hidden"></div>
-      <div id="heatPin2" class="pin two hidden"></div>
+      <div id="heatPin" class="pin hidden"><svg viewBox="0 0 24 32" aria-hidden="true"><path d="M12 32C9 26.5 2 19 2 11.5a10 10 0 0 1 20 0C22 19 15 26.5 12 32z"/><circle cx="12" cy="11.5" r="3.6" fill="#fff"/></svg><i class="tipdot"></i></div>
+      <div id="heatPin2" class="pin two hidden"><svg viewBox="0 0 24 32" aria-hidden="true"><path d="M12 32C9 26.5 2 19 2 11.5a10 10 0 0 1 20 0C22 19 15 26.5 12 32z"/><circle cx="12" cy="11.5" r="3.6" fill="#fff"/></svg><i class="tipdot"></i></div>
       <button id="heatReset" class="btn ghost sm resetpins hidden" type="button">Reset pins</button>
       <div id="heatLoading" class="heatloading"><div class="dots"><i></i><i></i><i></i></div></div>
     </div>

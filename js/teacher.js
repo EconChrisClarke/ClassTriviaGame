@@ -595,10 +595,15 @@ function enterHost(code, game, questions, scores) {
   H.unsubP = F.onSnapshot(F.collection(db, 'games', code, 'players'), snap => {
     addUsage(snap.docChanges().length);
     const fresh = [];
+    let renamed = false;
     snap.docChanges().forEach(ch => {
-      if (ch.type === 'removed') H.players.delete(ch.doc.id);
-      else { if (!H.players.has(ch.doc.id)) fresh.push(ch.doc.data().name); H.players.set(ch.doc.id, ch.doc.data()); }
+      if (ch.type === 'removed') { H.players.delete(ch.doc.id); renamed = true; return; }
+      const old = H.players.get(ch.doc.id);
+      if (!old) fresh.push(ch.doc.data().name);
+      else if (old.name !== ch.doc.data().name) renamed = true;   // a student fixed a typo
+      H.players.set(ch.doc.id, ch.doc.data());
     });
+    if (renamed) $('#bubbles').innerHTML = '';
     $('#pCount').textContent = H.players.size;
     $('#startBtn').disabled = H.players.size === 0;
     const b = $('#bubbles');
@@ -655,10 +660,11 @@ $('#nextBtn').addEventListener('click', () => {
 });
 
 /* ----- One question ----- */
-async function openQuestion(idx) {
+async function openQuestion(idx, reopen = false) {
   const qd = H.questions[idx];
   H.answers = new Map();
   H.closing = false;
+  H.reopened = reopen;   // earlier answers still count, so don't auto-close when "everyone" has answered
   $('#hostCorner').textContent = `Join: ${H.code}`;
   const pub = { idx, type: qd.type, prompt: qd.prompt, time: qd.time, startAt: F.serverTimestamp(),
     choices: qd.type === 'mc' ? qd.choices : [], imageId: qd.type === 'heat' ? qd.imageId : null,
@@ -667,12 +673,18 @@ async function openQuestion(idx) {
   hostView('question');
   H.deadline = Date.now() + qd.time * 1000;
   runTimer();
+  const t0 = Date.now();
   await setGame({ status: 'question', q: pub, reveal: null });
+  const t1 = Date.now();
   if (qd.type === 'heat') addUsage(H.players.size);  // phones fetch the image
   const g = await F.getDoc(F.doc(db, 'games', H.code));
   addUsage(1);
   H.game.q = g.data().q;
   H.startAt = g.data().q.startAt.toMillis();
+  // Line the laptop's countdown up with the server's clock, which is what the phones count down to.
+  H.clockOffset = H.startAt - (t0 + t1) / 2;
+  try { localStorage.setItem('cpb:teacherClockOffset', String(H.clockOffset)); } catch { /* ignore */ }
+  H.deadline = H.startAt - H.clockOffset + H.game.q.time * 1000;
   listenAnswers(idx);
 }
 
@@ -680,7 +692,10 @@ function resumeQuestion() {
   const q = H.game.q;
   const qd = H.questions[q.idx];
   H.startAt = q.startAt?.toMillis?.() || Date.now();
-  H.deadline = H.startAt + q.time * 1000;
+  let off = 0;
+  try { off = +localStorage.getItem('cpb:teacherClockOffset') || 0; } catch { /* ignore */ }
+  H.clockOffset = off;
+  H.deadline = H.startAt - off + q.time * 1000;
   $('#hostCorner').textContent = `Join: ${H.code}`;
   renderQuestionScreen(qd, q.idx);
   hostView('question');
@@ -694,9 +709,9 @@ function listenAnswers(idx) {
     addUsage(snap.docChanges().length || 1);
     snap.docChanges().forEach(ch => { if (ch.type !== 'removed') H.answers.set(ch.doc.id, ch.doc.data()); });
     $('#ansCount').textContent = `${H.answers.size}/${H.players.size}`;
-    if (!H.closing && H.players.size > 0 && H.answers.size >= H.players.size) {
+    if (!H.closing && !H.reopened && H.players.size > 0 && H.answers.size >= H.players.size) {
       $('#ringNum').textContent = '✓';
-      closeQuestion(600);
+      closeQuestion(1500);   // a moment for anyone still changing their answer
     }
   });
 }
@@ -766,7 +781,9 @@ async function closeQuestion(graceMs) {
   for (const a of H.answers.values()) {
     const at = a.at?.toMillis?.();
     if (at == null) continue;
-    const ms = at - H.startAt;
+    let ms = at - H.startAt;
+    // An answer sent before the question was re-opened still counts, with its original time.
+    if (ms < 0) ms = sc.players[a.uid]?.r?.[idx]?.ms ?? 0;
     if (ms > limitMs + 2500) continue;  // too late (phones use the same 2.5 s cutoff: GRACE_MS in student.js)
     const pl = sc.players[a.uid] = sc.players[a.uid] || { n: '(unknown)', s: '', r: {} };
     // Heatmap: each oval that gets a pin earns its share of the accuracy points (any order).
@@ -877,6 +894,19 @@ function drawHeat(canvas, img, recs, ovals) {
     ctx.restore();
   }
 }
+
+/* Re-open the question on the results screen: same question, fresh timer. Students keep (and can
+   change) the answer they already sent; anyone who missed it can answer now. */
+$('#reopenBtn').addEventListener('click', () => {
+  const idx = H.game.reveal?.idx;
+  if (idx == null) return;
+  if (!confirm(`Re-open question ${idx + 1} with a fresh ${H.questions[idx].time}-second timer? Answers already sent still count and can be changed.`)) return;
+  openQuestion(idx, true);
+});
+$('#backToReveal').addEventListener('click', () => {
+  const idx = H.game.reveal?.idx;
+  if (idx != null) showReveal(idx);
+});
 
 $('#toBoard').addEventListener('click', () => {
   const ranked = rankPlayers();

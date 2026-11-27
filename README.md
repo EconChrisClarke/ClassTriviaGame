@@ -12,6 +12,10 @@ Hosted free on GitHub Pages; live answers go through Firebase Firestore on the f
 - **Two question types:** multiple choice (2 to 4 answers, one or more correct) and **heatmap**, where students tap an image and a tap inside the oval you drew counts as correct.
 - **Grading per question:** 0.5 points for answering plus 0.5 for being correct by default, adjustable per question set.
 - **Leaderboard:** shows the top 10 after each question. Ties go to whoever answered faster in total; a missed question counts as the full timer.
+- **Students can change their answer** until time runs out. When the timer ends, whatever is on their screen (e.g. heatmap pins they never sent) is submitted automatically.
+- **Re-open a question** from its results screen (fresh timer; answers already sent still count), and go **back to the results** from the leaderboard.
+- **Lag-tolerant phones:** every phone counts down to the same server deadline as the teacher, keeps the screen awake, shows "Reconnecting…" when the connection drops, and catches up as soon as it returns.
+- **Students can fix a misspelled name or ID** at any time by tapping their name at the top of the screen.
 - **Adjustable timer** per question, plus **+10 seconds** and **End now** buttons while it runs. A question closes early once everyone has answered.
 - **Student identity:** students give their first name, last name and Student ID, with a reminder that real names are required for credit.
 - **Grades CSV:** rank, last name, first name, student ID, points per question, participation, accuracy, total and answer time. If a student joins on two devices, the rows are merged by Student ID, keeping the best result for each question.
