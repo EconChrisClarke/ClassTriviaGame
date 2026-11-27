@@ -576,6 +576,9 @@ async function resumeHost(code) {
 function enterHost(code, game, questions, scores) {
   H = { code, game, questions, scores, players: new Map(), answers: new Map(), unsubP: null, unsubA: null,
     stateWrites: 0, deadline: 0, startAt: 0, closing: false };
+  // Start every game with a clean lobby (the previous game's names stay in the page otherwise).
+  $('#bubbles').innerHTML = '';
+  setPlayerCount(0);
   location.hash = `host/${code}`;
   document.body.style.overflow = 'hidden';
   $('#host').classList.remove('hidden');
@@ -604,7 +607,7 @@ function enterHost(code, game, questions, scores) {
       H.players.set(ch.doc.id, ch.doc.data());
     });
     if (renamed) $('#bubbles').innerHTML = '';
-    $('#pCount').textContent = H.players.size;
+    setPlayerCount(H.players.size);
     $('#startBtn').disabled = H.players.size === 0;
     const b = $('#bubbles');
     if (b.childElementCount === 0) {
@@ -621,6 +624,11 @@ function enterHost(code, game, questions, scores) {
   else if (s === 'question') resumeQuestion();
   else if (s === 'reveal') { showReveal(game.reveal.idx); }
   else if (s === 'ended') showFinal();
+}
+
+function setPlayerCount(n) {
+  $('#pCount').textContent = n;
+  $('#pWord').textContent = n === 1 ? 'player' : 'players';
 }
 
 /* Show the join QR on top of any host screen (for latecomers and students who got disconnected). */
